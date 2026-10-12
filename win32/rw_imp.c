@@ -29,6 +29,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 ** SWimp_SetPalette
 ** SWimp_Shutdown
 */
+#include "../race_version.h"
 #include "..\ref_soft\r_local.h"
 #include "rw_win.h"
 #include "winquake.h"
@@ -89,7 +90,7 @@ void VID_CreateWindow( int width, int height, int stylebits )
 	sww_state.hWnd = CreateWindowEx (
 		exstyle,
 		 WINDOW_CLASS_NAME,
-		 "Quake 2",
+		 "R1Q2 Race - " RACE_VERSION RACE_MODIFIED,
 		 stylebits,
 		 x, y, w, h,
 		 NULL,

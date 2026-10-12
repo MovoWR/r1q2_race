@@ -2369,7 +2369,7 @@ void Qcommon_Init (int argc, char **argv)
 	err_fatal = Cvar_Get ("err_fatal", "0", 0);
 
 	//s = va("R1Q2 %s %s %s %s", VERSION, CPUSTRING, __DATE__, BUILDSTRING);
-	Cvar_Get ("version", R1Q2_VERSION_STRING, CVAR_SERVERINFO|CVAR_NOSET);
+	Cvar_Get ("version", dedicated->intvalue ? R1Q2_VERSION_STRING : RACE_VERSION_STRING, CVAR_SERVERINFO|CVAR_NOSET);
 
 #ifndef NO_SERVER
 	if (dedicated->intvalue)
@@ -2389,10 +2389,14 @@ void Qcommon_Init (int argc, char **argv)
 #endif
 
 	Com_Printf ("====== Quake2 Initialized ======\n", LOG_GENERAL);
-	Com_Printf ("%s build " BUILD ", compiled " __DATE__ ".\n"
-				"http://www.r1ch.net/stuff/r1q2/\n" BUILDSTRING " " CPUSTRING " (%s)\n\n",
-		LOG_GENERAL,
-		dedicated->intvalue ? "R1Q2" : R1Q2_CLIENT_NAME, binary_name);
+	if (!dedicated->intvalue)
+		Com_Printf (RACE_IDENTITY "\nCommit " RACE_COMMIT " | " BUILDSTRING " " CPUSTRING
+			"\nCompiled " __DATE__ "\nhttp://www.r1ch.net/stuff/r1q2/\n\n", LOG_GENERAL);
+	else
+		Com_Printf ("%s build " BUILD ", compiled " __DATE__ ".\n"
+					"http://www.r1ch.net/stuff/r1q2/\n" BUILDSTRING " " CPUSTRING " (%s)\n\n",
+			LOG_GENERAL,
+			dedicated->intvalue ? "R1Q2" : R1Q2_CLIENT_NAME, binary_name);
 
 #ifndef DEDICATED_ONLY
 	CL_Init ();
@@ -2411,7 +2415,7 @@ void Qcommon_Init (int argc, char **argv)
 			Cbuf_AddText ("toggleconsole\n");
 
 			Com_Printf (
-				"Welcome to " R1Q2_CLIENT_NAME ".\n"
+				"Welcome to " RACE_IDENTITY ".\n"
 				"\n"
 				"  Press <ESC> to open the menu.\n"
 				"  Type connect <host> to connect to a server.\n"

@@ -133,7 +133,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#define PRODUCTNAMELOWER "r1q2 (mod)"
 #endif
 
-#define R1Q2_CLIENT_NAME "r1q2_race"
+#include "../race_version.h"
+
+#define R1Q2_CLIENT_NAME "R1Q2 Race"
+#define RACE_VERSION_STRING RACE_DETAILS " | " BUILDSTRING " " CPUSTRING " | " __DATE__
 
 #define R1Q2_VERSION_STRING "R1Q2 " VERSION " " CPUSTRING " " __DATE__ " " BUILDSTRING
 

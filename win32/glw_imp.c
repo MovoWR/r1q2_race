@@ -38,6 +38,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "../client/vid_config.h"
 #include "wglext.h"
 #include "glw_display.h"
+#include "../race_version.h"
 
 //static qboolean GLimp_SwitchFullscreen( int width, int height );
 qboolean GLimp_InitGL (void);
@@ -642,7 +643,7 @@ int VID_CreateWindow( int width, int height, qboolean fullscreen )
 	glw_state.hWnd = CreateWindowEx (
 		exstyle,
 		WINDOW_CLASS_NAME,
-		"r1q2_race",
+		"R1Q2 Race - " RACE_VERSION RACE_MODIFIED,
 		stylebits,
 		x, y, w, h,
 		NULL,

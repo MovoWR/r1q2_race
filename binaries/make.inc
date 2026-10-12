@@ -17,3 +17,11 @@ distclean: clean
 
 -include $(DEPENDS)
 
+
+# Refresh Git identity on every build, retaining the header mtime if unchanged.
+PYTHON?=python3
+CFLAGS+=-DR1Q2_GENERATED_VERSION -I.depends
+.PHONY: race-version-force
+.depends/race_version_generated.h: race-version-force
+	$(PYTHON) ../../tools/generate_version.py --source ../.. --output $@
+$(ALLOBJ): .depends/race_version_generated.h

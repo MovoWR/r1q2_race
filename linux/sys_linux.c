@@ -238,7 +238,10 @@ void Sys_Backtrace (int sig, siginfo_t *siginfo, void *secret)
 	for (i = 0; i < size; i++)
 		fprintf (stderr, "%.2zd: %s\n", i, strings[i]);
 
-	fprintf (stderr, "\nVersion: " R1BINARY " " VERSION " (" BUILDSTRING " " CPUSTRING ") " RELEASESTRING "\n");
+	if (dedicated && dedicated->intvalue)
+		fprintf (stderr, "\nVersion: " R1BINARY " " VERSION " (" BUILDSTRING " " CPUSTRING ") " RELEASESTRING "\n");
+	else
+		fprintf (stderr, "\nVersion: " RACE_VERSION_STRING "\n");
 
 	uname (&info);
 	fprintf (stderr, "OS Info: %s %s %s %s %s\n\n", info.sysname, info.nodename, info.release, info.version, info.machine);

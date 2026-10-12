@@ -34,6 +34,7 @@
 ** GLimp_SwitchFullscreen
 */
 
+#include "../race_version.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -1263,7 +1264,7 @@ static qboolean SDL2_CreateGLWindow (int display)
 				ri.Con_Printf (PRINT_ALL, "SDL OpenGL context flags failed: %s\n", SDL_GetError ());
 			else if (GLimp_SetSampleAttributes (attempt_samples))
 			{
-				sdl_window = SDL_CreateWindow ("Quake II",
+				sdl_window = SDL_CreateWindow ("R1Q2 Race - " RACE_VERSION RACE_MODIFIED,
 					sdl_window_positioned ? sdl_window_x : SDL_WINDOWPOS_CENTERED_DISPLAY (display),
 					sdl_window_positioned ? sdl_window_y : SDL_WINDOWPOS_CENTERED_DISPLAY (display),
 					vid.width, vid.height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
@@ -1530,7 +1531,7 @@ static qboolean GLimp_InitGraphics (qboolean fullscreen, qboolean borderless)
 		attempt_samples = 0;
 	}
 
-	SDL_WM_SetCaption("Quake II", "Quake II");
+	SDL_WM_SetCaption("R1Q2 Race - " RACE_VERSION RACE_MODIFIED, "R1Q2 Race");
 
 	width = (int)ceilf ((float)vid.width / gl_hudscale->value);
 	height = (int)ceilf ((float)vid.height / gl_hudscale->value);

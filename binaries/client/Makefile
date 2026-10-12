@@ -63,7 +63,7 @@ quake2: $(quake2_OBJ)
 
 # only works with gcc >4.1
 combine: quake2-combine
-quake2-combine: $(quake2_SRC)
-	$(CC) -O2 -ffloat-store -DNDEBUG -DLINUX -fwhole-program --combine -g -o $@ $^ $(LDFLAGS)
+quake2-combine: $(quake2_SRC) .depends/race_version_generated.h
+	$(CC) -O2 -ffloat-store -DNDEBUG -DLINUX -fwhole-program --combine -DR1Q2_GENERATED_VERSION -I.depends -g -o $@ $(quake2_SRC) $(LDFLAGS)
 
 -include .depends/*.d

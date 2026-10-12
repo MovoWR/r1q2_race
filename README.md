@@ -30,6 +30,12 @@ On Unix, use `make -C binaries`; the client needs zlib, and the renderer needs
 SDL2, OpenGL, libpng, and libjpeg. OpenAL and FFmpeg are optional;
 see `CMakeLists.txt`, `meson.options`, or the target Makefile for their options.
 
+## Version
+
+Builds use `R1Q2 Race <commit count> ups`, with the commit hash in diagnostics.
+Local changes add `[modified]`. Full Git history is needed for the count;
+shallow checkouts and source archives show `unknown ups`.
+
 ## License
 
 Original source notices are retained. See [COPYING](COPYING) for GPL terms

@@ -25,8 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "jump/jump_servers.h"
 #include "../qcommon/md3_format.h"
 
-#define CL_VERSION_REPLY "say \"" R1Q2_CLIENT_NAME " " VERSION \
-	" | " BUILDSTRING " " CPUSTRING " | built " __DATE__ " " __TIME__ "\"\n"
+#define CL_VERSION_REPLY "say \"" RACE_DETAILS " | " BUILDSTRING " " CPUSTRING "\"\n"
 
 int deferred_model_index;
 
@@ -3490,7 +3489,7 @@ void CL_Toggle_f (void)
 
 void version_update (cvar_t *self, char *old, char *newValue)
 {
-	Cvar_Set ("cl_version", va(PRODUCTNAME " " VERSION "; %s", newValue[0] ? newValue : "unknown renderer"));
+	Cvar_Set ("cl_version", va(RACE_IDENTITY "; %s", newValue[0] ? newValue : "unknown renderer"));
 }
 
 void _name_changed (cvar_t *var, char *oldValue, char *newValue)
@@ -3886,7 +3885,7 @@ void CL_InitLocal (void)
 
 	//haxx
 	glVersion = Cvar_VariableString ("cl_version");
-	(Cvar_ForceSet ("cl_version", va(PRODUCTNAME " " VERSION "; %s", glVersion[0] ? glVersion : "unknown renderer" )))->changed = version_update;
+	(Cvar_ForceSet ("cl_version", va(RACE_IDENTITY "; %s", glVersion[0] ? glVersion : "unknown renderer" )))->changed = version_update;
 
 	name->changed = _name_changed;
 

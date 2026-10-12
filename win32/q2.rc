@@ -1,6 +1,7 @@
 // Microsoft Visual C++ generated resource script.
 //
 #include "resource.h"
+#include "../race_version.h"
 
 #define APSTUDIO_READONLY_SYMBOLS
 /////////////////////////////////////////////////////////////////////////////
@@ -96,8 +97,8 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_UK
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 8,0,1,2
- PRODUCTVERSION 8,0,1,2
+ FILEVERSION RACE_FILE_VERSION
+ PRODUCTVERSION RACE_FILE_VERSION
  FILEFLAGSMASK 0x17L
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -114,13 +115,13 @@ BEGIN
         BEGIN
             VALUE "Comments", "http://www.r1ch.net/stuff/r1q2/"
             VALUE "CompanyName", "r1ch.net"
-            VALUE "FileDescription", "r1q2_race - Quake II Jump Client"
-            VALUE "FileVersion", "8, 0, 1, 2"
+            VALUE "FileDescription", "R1Q2 Race - Quake II Jump Client"
+            VALUE "FileVersion", RACE_DETAILS
             VALUE "InternalName", "r1q2_race"
             VALUE "LegalCopyright", "Copyright (C) 2002-2008"
             VALUE "OriginalFilename", "r1q2_race.exe"
-            VALUE "ProductName", "r1q2_race"
-            VALUE "ProductVersion", "Release"
+            VALUE "ProductName", "R1Q2 Race"
+            VALUE "ProductVersion", RACE_DETAILS
         END
     END
     BLOCK "VarFileInfo"

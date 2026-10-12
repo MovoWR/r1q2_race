@@ -270,6 +270,16 @@ add_executable(r1q2 WIN32
     ref_gl/gl_rsurf.c
     ref_gl/gl_warp.c)
 set_target_properties(r1q2 PROPERTIES OUTPUT_NAME r1q2_race)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_custom_target(race_version
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_version.py"
+        --source "${CMAKE_CURRENT_SOURCE_DIR}"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/race_version_generated.h"
+    BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/race_version_generated.h"
+    VERBATIM)
+add_dependencies(r1q2 race_version)
+target_include_directories(r1q2 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(r1q2 PRIVATE R1Q2_GENERATED_VERSION)
 
 target_compile_definitions(r1q2 PRIVATE
     WIN32 _WINDOWS REF_HARD_LINKED CINEMATICS _CRT_SECURE_NO_WARNINGS)

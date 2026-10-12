@@ -29,7 +29,7 @@ ref_gl.so: $(ref_gl_OBJ)
 
 # only works with gcc >4.1
 combine: ref_gl-combine.so
-ref_gl-combine.so: $(ref_gl_SRC)
-	$(CC) $(shell sdl2-config --cflags) -shared -O2 -ffloat-store -DNDEBUG -DLINUX -fPIC -fwhole-program --combine -g -o $@ $^ $(LDFLAGS)
+ref_gl-combine.so: $(ref_gl_SRC) .depends/race_version_generated.h
+	$(CC) $(shell sdl2-config --cflags) -shared -O2 -ffloat-store -DNDEBUG -DLINUX -fPIC -fwhole-program --combine -DR1Q2_GENERATED_VERSION -I.depends -g -o $@ $(ref_gl_SRC) $(LDFLAGS)
 
 -include .depends/*.d

@@ -264,11 +264,20 @@ endif
 if get_option('core_renderer')
   definitions += ['-DR1Q2_GL_CORE']
 endif
+version_python = import('python').find_installation()
+version_header = custom_target('race_version',
+  output: 'race_version_generated.h',
+  command: [version_python, files('tools/generate_version.py'),
+    '--source', meson.project_source_root(), '--output', '@OUTPUT@'],
+  build_always_stale: true,
+)
+definitions += ['-DR1Q2_GENERATED_VERSION']
 windows = import('windows')
-win32_inc = include_directories('win32')
+win32_inc = include_directories('win32', '.')
 resources = windows.compile_resources('win32/q2.rc',
   args: definitions,
   include_directories: win32_inc,
+  depends: version_header,
   depend_files: files('win32/resource.h', 'win32/q2.ico', 'win32/icon2.ico'),
 )
 
@@ -278,7 +287,7 @@ foreach name : ['winmm', 'wsock32', 'kernel32', 'user32', 'gdi32', 'advapi32', '
   system_deps += cc.find_library(name)
 endforeach
 
-executable('r1q2_race', sources, resources,
+executable('r1q2_race', sources, resources, version_header,
   dependencies: [zlib, png, jpeg] + http_deps + media_deps + openal_deps + system_deps,
   include_directories: win32_inc,
   # This also removes Meson's implicit /utf-8, retaining CMake's MSVC code page.

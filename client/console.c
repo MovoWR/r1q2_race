@@ -1084,7 +1084,7 @@ void Con_DrawConsole (float frac)
 	char			*text;
 	int				row;
 	int				lines;
-	char			version[24];
+	char			version[96];
 	char			dlbar[1024];
 
 	time_t			t;
@@ -1126,7 +1126,7 @@ void Con_DrawConsole (float frac)
 
 	len = (int)strlen (console_prompt.field.text);
 
-	i = Com_sprintf (version, sizeof(version), PRODUCTNAMELOWER " " VERSION);
+	i = Com_sprintf (version, sizeof(version), "r1q2 race " RACE_VERSION RACE_MODIFIED);
 
 	if (len >= (viddef.width * 0.125f) - (i+2))
 		offset = 20;
