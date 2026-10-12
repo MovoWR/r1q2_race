@@ -1,0 +1,74 @@
+name: Windows
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows x86 Release
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_x86
+
+      - name: Download OpenAL Soft
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force build/deps | Out-Null
+          $archive = 'build/deps/openal-soft-1.23.1.tar.bz2'
+          Invoke-WebRequest https://openal-soft.org/openal-releases/openal-soft-1.23.1.tar.bz2 -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '796f4b89134c4e57270b7f0d755f0fa3435b90da437b745160a49bd41c845b21') {
+            throw 'OpenAL Soft source checksum mismatch'
+          }
+          tar -xf $archive -C build/deps
+
+      - name: Configure OpenAL Soft
+        shell: pwsh
+        run: >-
+          cmake -S build/deps/openal-soft-1.23.1 -B build/deps/openal-build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+          "-DCMAKE_INSTALL_PREFIX=$env:GITHUB_WORKSPACE/build/deps/openal"
+          -DLIBTYPE=STATIC -DFORCE_STATIC_VCRT=ON
+          -DALSOFT_UTILS=OFF -DALSOFT_NO_CONFIG_UTIL=ON -DALSOFT_EXAMPLES=OFF
+          -DALSOFT_BUILD_ROUTER=OFF -DALSOFT_UPDATE_BUILD_VERSION=OFF
+          -DALSOFT_INSTALL=ON -DALSOFT_INSTALL_CONFIG=OFF
+          -DALSOFT_INSTALL_HRTF_DATA=OFF -DALSOFT_INSTALL_AMBDEC_PRESETS=OFF
+          -DALSOFT_INSTALL_EXAMPLES=OFF -DALSOFT_INSTALL_UTILS=OFF
+          -DALSOFT_EMBED_HRTF_DATA=ON -DALSOFT_EAX=ON -DALSOFT_NO_UID_DEFS=OFF
+          -DALSOFT_BACKEND_WAVE=ON
+          -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=ON
+          -DCMAKE_DISABLE_FIND_PACKAGE_SDL2=ON -DCMAKE_DISABLE_FIND_PACKAGE_Git=ON
+          -DALSOFT_BACKEND_WINMM=ON -DALSOFT_REQUIRE_WINMM=ON
+          -DALSOFT_BACKEND_DSOUND=ON -DALSOFT_REQUIRE_DSOUND=ON
+          -DALSOFT_BACKEND_WASAPI=ON -DALSOFT_REQUIRE_WASAPI=ON
+          -DALSOFT_BACKEND_PIPEWIRE=OFF -DALSOFT_BACKEND_PULSEAUDIO=OFF
+          -DALSOFT_BACKEND_JACK=OFF -DALSOFT_BACKEND_COREAUDIO=OFF
+          -DALSOFT_BACKEND_OBOE=OFF -DALSOFT_BACKEND_OPENSL=OFF
+          -DALSOFT_BACKEND_PORTAUDIO=OFF -DALSOFT_BACKEND_SDL2=OFF
+
+      - name: Build OpenAL Soft
+        run: cmake --build build/deps/openal-build --target install --parallel
+
+      - name: Configure client
+        shell: pwsh
+        run: >-
+          cmake -S . -B build/windows -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DR1Q2_CORE_RENDERER=ON -DR1Q2_HTTP_DOWNLOADS=ON
+          -DR1Q2_CHAT_TRANSLATOR=OFF -DR1Q2_AVCODEC=OFF -DR1Q2_OPENAL=ON
+          "-DR1Q2_OPENAL_ROOT=$env:GITHUB_WORKSPACE/build/deps/openal"
+
+      - name: Compile client
+        run: cmake --build build/windows --target r1q2 --parallel
