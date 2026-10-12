@@ -18,7 +18,10 @@ def generate(source):
         if git("rev-parse", "--is-shallow-repository") == "false":
             number = int(git("rev-list", "--count", "HEAD"))
             revision = str(number)
-        if git("status", "--porcelain", "--untracked-files=normal"):
+        # Compare content, including the index. Status alone may report stale
+        # stat-cache changes after an exact source export on Windows.
+        if (git("diff", "--name-only") or git("diff", "--cached", "--name-only")
+                or git("ls-files", "--others", "--exclude-standard")):
             modified = " [modified]"
             commit += "-dirty"
     except (OSError, subprocess.CalledProcessError, ValueError):
