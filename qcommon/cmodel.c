@@ -20,6 +20,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cmodel.c -- model loading
 
 #include "qcommon.h"
+#include "bsp_node_graph.h"
+#include "bsp_format.h"
 
 typedef struct
 {
@@ -82,7 +84,6 @@ static cbrush_t		map_brushes[MAX_MAP_BRUSHES];
 
 static int			numvisibility;
 static byte			map_visibility[MAX_MAP_VISIBILITY];
-static dvis_t		*map_vis = (dvis_t *)map_visibility;
 
 static int			numentitychars;
 static char			map_entitystring[MAX_MAP_ENTSTRING];
@@ -130,15 +131,15 @@ CMod_LoadSubmodels
 */
 void CMod_LoadSubmodels (lump_t *l)
 {
-	dmodel_t	*in;
+	const byte *in;
 	cmodel_t	*out;
 	int			i, j, count;
 
-	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+	in = cmod_base + l->fileofs;
+	if (l->filelen % sizeof (dmodel_t))
 		Com_Error (ERR_DROP, "CMod_LoadSubmodels: funny lump size");
 
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (dmodel_t);
 
 	if (count < 1)
 		Com_Error (ERR_DROP, "Map with no models");
@@ -148,17 +149,17 @@ void CMod_LoadSubmodels (lump_t *l)
 
 	numcmodels = count;
 
-	for ( i=0 ; i<count ; i++, in++, out++)
+	for (i = 0; i < count; i++, in += sizeof (dmodel_t))
 	{
 		out = &map_cmodels[i];
 
 		for (j=0 ; j<3 ; j++)
 		{	// spread the mins / maxs by a pixel
-			out->mins[j] = LittleFloat (in->mins[j]) - 1;
-			out->maxs[j] = LittleFloat (in->maxs[j]) + 1;
-			out->origin[j] = LittleFloat (in->origin[j]);
+			out->mins[j] = R1BSP_ReadFloat (in + j * 4) - 1;
+			out->maxs[j] = R1BSP_ReadFloat (in + 12 + j * 4) + 1;
+			out->origin[j] = R1BSP_ReadFloat (in + 24 + j * 4);
 		}
-		out->headnode = LittleLong (in->headnode);
+		out->headnode = R1BSP_ReadI32 (in + offsetof (dmodel_t, headnode));
 	}
 }
 
@@ -170,14 +171,14 @@ CMod_LoadSurfaces
 */
 void CMod_LoadSurfaces (lump_t *l)
 {
-	texinfo_t	*in;
+	const byte *in;
 	mapsurface_t	*out;
 	int			i, count;
 
-	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+	in = cmod_base + l->fileofs;
+	if (l->filelen % sizeof (texinfo_t))
 		Com_Error (ERR_DROP, "CMod_LoadSurfaces: funny lump size");
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (texinfo_t);
 	if (count < 1)
 		Com_Error (ERR_DROP, "CMod_LoadSurfaces: Map with no surfaces");
 	if (count > MAX_MAP_TEXINFO)
@@ -186,13 +187,15 @@ void CMod_LoadSurfaces (lump_t *l)
 	numtexinfo = count;
 	out = map_surfaces;
 
-	for ( i=0 ; i<count ; i++, in++, out++)
+	for (i = 0; i < count; i++, in += sizeof (texinfo_t), out++)
 	{
-		//FIXME CRASH: crashreport here due to illegal texture pointer.
-		strncpy (out->c.name, in->texture, sizeof(out->c.name)-1);
-		strncpy (out->rname, in->texture, sizeof(out->rname)-1);
-		out->c.flags = LittleLong (in->flags);
-		out->c.value = LittleLong (in->value);
+		const byte *texture = in + offsetof (texinfo_t, texture);
+		strncpy (out->c.name, (const char *)texture, sizeof (out->c.name) - 1);
+		out->c.name[sizeof (out->c.name) - 1] = 0;
+		strncpy (out->rname, (const char *)texture, sizeof (out->rname) - 1);
+		out->rname[sizeof (out->rname) - 1] = 0;
+		out->c.flags = R1BSP_ReadI32 (in + offsetof (texinfo_t, flags));
+		out->c.value = R1BSP_ReadI32 (in + offsetof (texinfo_t, value));
 	}
 }
 
@@ -205,32 +208,53 @@ CMod_LoadNodes
 */
 void CMod_LoadNodes (lump_t *l)
 {
-	dnode_t		*in;
-	int			child;
+	const byte *in;
+	int child, planenum;
 	cnode_t		*out;
 	int			i, j, count;
-	
-	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+	bsp38_node_graph_error_t graph_error;
+	bsp38_node_graph_status_t graph_status;
+
+	in = cmod_base + l->fileofs;
+	if (l->filelen % sizeof (dnode_t))
 		Com_Error (ERR_DROP, "CMod_LoadNodes: funny lump size");
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (dnode_t);
 
 	if (count < 1)
 		Com_Error (ERR_DROP, "Map has no nodes");
 	if (count > MAX_MAP_NODES)
 		Com_Error (ERR_DROP, "Map has too many nodes");
+	graph_status = BSP38_ValidateNodeGraph (in, count,
+		numleafs, &graph_error);
+	if (graph_status == BSP38_NODE_GRAPH_BAD_NODE)
+		Com_Error (ERR_DROP, "CMod_LoadNodes: node %d child %d has bad node %d",
+			graph_error.node, graph_error.side, graph_error.child);
+	else if (graph_status == BSP38_NODE_GRAPH_BAD_LEAF)
+		Com_Error (ERR_DROP, "CMod_LoadNodes: node %d child %d has bad leaf %d",
+			graph_error.node, graph_error.side, graph_error.child);
+	else if (graph_status == BSP38_NODE_GRAPH_SHARED_NODE)
+		Com_Error (ERR_DROP, "CMod_LoadNodes: node %d child %d has shared node %d",
+			graph_error.node, graph_error.side, graph_error.child);
+	else if (graph_status == BSP38_NODE_GRAPH_CYCLE)
+		Com_Error (ERR_DROP, "CMod_LoadNodes: node %d child %d forms a cycle to node %d",
+			graph_error.node, graph_error.side, graph_error.child);
+	else if (graph_status != BSP38_NODE_GRAPH_OK)
+		Com_Error (ERR_DROP, "CMod_LoadNodes: out of memory validating nodes");
 
 	out = map_nodes;
 
 	numnodes = count;
 
-	for (i=0 ; i<count ; i++, out++, in++)
+	for (i = 0; i < count; i++, out++, in += sizeof (dnode_t))
 	{
-		out->plane = map_planes + LittleLong (in->planenum);
-		out->fastplane = map_fastplanes + LittleLong (in->planenum);
+		planenum = R1BSP_ReadI32 (in + offsetof (dnode_t, planenum));
+		if (planenum < 0 || planenum >= numplanes)
+			Com_Error (ERR_DROP, "CMod_LoadNodes: node %d has bad plane %d", i, planenum);
+		out->plane = map_planes + planenum;
+		out->fastplane = map_fastplanes + planenum;
 		for (j=0 ; j<2 ; j++)
 		{
-			child = LittleLong (in->children[j]);
+			child = R1BSP_ReadI32 (in + offsetof (dnode_t, children) + j * 4);
 			out->children[j] = child;
 		}
 	}
@@ -245,14 +269,14 @@ CMod_LoadBrushes
 */
 void CMod_LoadBrushes (lump_t *l)
 {
-	dbrush_t	*in;
+	const byte *in;
 	cbrush_t	*out;
 	int			i, count;
 	
 	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+	if (l->filelen % sizeof (dbrush_t))
 		Com_Error (ERR_DROP, "CMod_LoadBrushes: funny lump size");
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (dbrush_t);
 
 	if (count > MAX_MAP_BRUSHES)
 		Com_Error (ERR_DROP, "Map has too many brushes");
@@ -261,11 +285,11 @@ void CMod_LoadBrushes (lump_t *l)
 
 	numbrushes = count;
 
-	for (i=0 ; i<count ; i++, out++, in++)
+	for (i = 0; i < count; i++, out++, in += sizeof (dbrush_t))
 	{
-		out->firstbrushside = LittleLong(in->firstside);
-		out->numsides = LittleLong(in->numsides);
-		out->contents = LittleLong(in->contents);
+		out->firstbrushside = R1BSP_ReadI32 (in);
+		out->numsides = R1BSP_ReadI32 (in + 4);
+		out->contents = R1BSP_ReadI32 (in + 8);
 	}
 
 }
@@ -279,13 +303,13 @@ void CMod_LoadLeafs (lump_t *l)
 {
 	int			i;
 	cleaf_t		*out;
-	dleaf_t 	*in;
+	const byte *in;
 	int			count;
-	
-	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+
+	in = cmod_base + l->fileofs;
+	if (l->filelen % sizeof (dleaf_t))
 		Com_Error (ERR_DROP, "CMod_LoadLeafs: funny lump size");
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (dleaf_t);
 
 	if (count < 1)
 		Com_Error (ERR_DROP, "Map with no leafs");
@@ -297,13 +321,13 @@ void CMod_LoadLeafs (lump_t *l)
 	numleafs = count;
 	numclusters = 0;
 
-	for ( i=0 ; i<count ; i++, in++, out++)
+	for (i = 0; i < count; i++, in += sizeof (dleaf_t), out++)
 	{
-		out->contents = LittleLong (in->contents);
-		out->cluster = LittleShort (in->cluster);
-		out->area = LittleShort (in->area);
-		out->firstleafbrush = LittleShort (in->firstleafbrush);
-		out->numleafbrushes = LittleShort (in->numleafbrushes);
+		out->contents = R1BSP_ReadI32 (in + offsetof (dleaf_t, contents));
+		out->cluster = R1BSP_ReadI16 (in + offsetof (dleaf_t, cluster));
+		out->area = R1BSP_ReadI16 (in + offsetof (dleaf_t, area));
+		out->firstleafbrush = R1BSP_ReadU16 (in + offsetof (dleaf_t, firstleafbrush));
+		out->numleafbrushes = R1BSP_ReadU16 (in + offsetof (dleaf_t, numleafbrushes));
 
 		if (out->cluster >= numclusters)
 			numclusters = out->cluster + 1;
@@ -336,14 +360,14 @@ void CMod_LoadPlanes (lump_t *l)
 	int			i, j;
 	cplane_t	*out;
 	fplane_t	*fout;
-	dplane_t 	*in;
+	const byte *in;
 	int			count;
 	int			bits;
-	
-	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+
+	in = cmod_base + l->fileofs;
+	if (l->filelen % sizeof (dplane_t))
 		Com_Error (ERR_DROP, "CMod_LoadPlanes: funny lump size");
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (dplane_t);
 
 	if (count < 1)
 		Com_Error (ERR_DROP, "Map with no planes");
@@ -356,25 +380,25 @@ void CMod_LoadPlanes (lump_t *l)
 	fout = map_fastplanes;
 	numplanes = count;
 
-	for ( i=0 ; i<count ; i++, in++, out++, fout++)
+	for (i = 0; i < count; i++, in += sizeof (dplane_t), out++, fout++)
 	{
 		bits = 0;
 		for (j=0 ; j<3 ; j++)
 		{
-			out->normal[j] = LittleFloat (in->normal[j]);
+			out->normal[j] = R1BSP_ReadFloat (in + j * 4);
 			if (FLOAT_LT_ZERO(out->normal[j]))
 				bits |= 1<<j;
 		}
 
-		out->dist = LittleFloat (in->dist);
-		if (in->type > 5)
-			Com_Error (ERR_DROP, "CMod_LoadPlanes: bad plane type %u (expected 0-5)", in->type);
-		out->type = (byte)LittleLong (in->type);
+		out->dist = R1BSP_ReadFloat (in + 12);
+		if (R1BSP_ReadU32 (in + 16) > 5)
+			Com_Error (ERR_DROP, "CMod_LoadPlanes: bad plane type %u (expected 0-5)", R1BSP_ReadU32 (in + 16));
+		out->type = (byte)R1BSP_ReadU32 (in + 16);
 		out->signbits = (byte)bits;
 
 		//r1ch: "fast" planes, less byte->int work needed
 		fout->dist = out->dist;
-		fout->type = LittleLong (in->type);
+		fout->type = R1BSP_ReadU32 (in + 16);
 		fout->signbits = bits;
 		FastVectorCopy (out->normal, fout->normal);
 	}
@@ -389,15 +413,15 @@ void CMod_LoadLeafBrushes (lump_t *l)
 {
 	int			i;
 	uint16		*out;
-	uint16		*in;
+	const byte *in;
 	int			count;
 	
 	in = (void *)(cmod_base + l->fileofs);
 
-	if (l->filelen % sizeof(*in))
+	if (l->filelen % sizeof (uint16))
 		Com_Error (ERR_DROP, "CMod_LoadLeafBrushes: funny lump size");
 
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (uint16);
 
 	if (count < 1)
 		Com_Error (ERR_DROP, "Map with no planes");
@@ -409,8 +433,8 @@ void CMod_LoadLeafBrushes (lump_t *l)
 	out = map_leafbrushes;
 	numleafbrushes = count;
 
-	for ( i=0 ; i<count ; i++, in++, out++)
-		*out = LittleShort (*in);
+	for (i = 0; i < count; i++, in += sizeof (uint16), out++)
+		*out = R1BSP_ReadU16 (in);
 }
 
 /*
@@ -422,14 +446,14 @@ void CMod_LoadBrushSides (lump_t *l)
 {
 	int			i, j;
 	cbrushside_t	*out;
-	dbrushside_t 	*in;
+	const byte *in;
 	int			count;
 	int			num;
 
 	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+	if (l->filelen % sizeof (dbrushside_t))
 		Com_Error (ERR_DROP, "CMod_LoadBrushSides: funny lump size");
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (dbrushside_t);
 
 	// need to save space for box planes
 	if (count > MAX_MAP_BRUSHSIDES)
@@ -438,16 +462,166 @@ void CMod_LoadBrushSides (lump_t *l)
 	out = map_brushsides;	
 	numbrushsides = count;
 
-	for ( i=0 ; i<count ; i++, in++, out++)
+	for (i = 0; i < count; i++, in += sizeof (dbrushside_t), out++)
 	{
-		num = LittleShort (in->planenum);
+		num = R1BSP_ReadU16 (in);
+		if (num >= numplanes)
+			Com_Error (ERR_DROP, "Bad brushside plane (%d >= %d)", num, numplanes);
 		out->plane = &map_planes[num];
-		j = LittleShort (in->texinfo);
+		j = R1BSP_ReadI16 (in + 2);
 		if (j >= numtexinfo)
 			Com_Error (ERR_DROP, "Bad brushside texinfo (%d > %d)", j, numtexinfo);
 		else if (j < 0)
 			j = 0;
 		out->surface = &map_surfaces[j];
+	}
+}
+
+/* QBSP widened records are read from bytes; the classic CMod_Load* functions
+ * above remain the IBSP path. */
+
+static void CMod_LoadQBSPPlanes (lump_t *l)
+{
+	const byte *in = cmod_base + l->fileofs;
+	cplane_t *out = map_planes;
+	fplane_t *fout = map_fastplanes;
+	uint32 type;
+	int i, j, bits, count = l->filelen / sizeof (dplane_t);
+
+	if (l->filelen % sizeof (dplane_t) || count < 1 ||
+		count + 12 > MAX_MAP_PLANES)
+		Com_Error (ERR_DROP, "CMod_LoadQBSPPlanes: bad lump size");
+	numplanes = count;
+	for (i = 0; i < count; i++, out++, fout++, in += sizeof (dplane_t))
+	{
+		bits = 0;
+		for (j = 0; j < 3; j++)
+		{
+			out->normal[j] = R1BSP_ReadFloat (in + j * 4);
+			if (FLOAT_LT_ZERO (out->normal[j]))
+				bits |= 1 << j;
+		}
+		out->dist = R1BSP_ReadFloat (in + 12);
+		type = R1BSP_ReadU32 (in + 16);
+		if (type > 5)
+			Com_Error (ERR_DROP, "CMod_LoadQBSPPlanes: bad type in plane %d", i);
+		out->type = (byte)type;
+		out->signbits = (byte)bits;
+		fout->dist = out->dist;
+		fout->type = type;
+		fout->signbits = bits;
+		FastVectorCopy (out->normal, fout->normal);
+	}
+}
+
+static void CMod_LoadQBSPBrushSides (lump_t *l)
+{
+	const byte *in = cmod_base + l->fileofs;
+	cbrushside_t *out = map_brushsides;
+	uint32 plane, texinfo;
+	int i, count = l->filelen / sizeof (qbsp_dbrushside_t);
+
+	if (l->filelen % sizeof (qbsp_dbrushside_t) || count > MAX_MAP_BRUSHSIDES - 6)
+		Com_Error (ERR_DROP, "CMod_LoadQBSPBrushSides: bad lump size");
+	numbrushsides = count;
+	for (i = 0; i < count; i++, out++, in += sizeof (qbsp_dbrushside_t))
+	{
+		plane = R1BSP_ReadU32 (in);
+		texinfo = R1BSP_ReadU32 (in + 4);
+		if (plane >= (uint32)numplanes ||
+			(texinfo != (uint32)-1 && texinfo >= (uint32)numtexinfo))
+			Com_Error (ERR_DROP, "CMod_LoadQBSPBrushSides: bad reference in side %d", i);
+		out->plane = map_planes + plane;
+		out->surface = texinfo == (uint32)-1 ? &nullsurface : map_surfaces + texinfo;
+	}
+}
+
+static void CMod_LoadQBSPLeafBrushes (lump_t *l)
+{
+	const byte *in = cmod_base + l->fileofs;
+	uint16 *out = map_leafbrushes;
+	uint32 brush;
+	int i, count = l->filelen / sizeof (qbsp_dleafbrush_t);
+
+	if (l->filelen % sizeof (qbsp_dleafbrush_t) || count < 1 ||
+		count >= MAX_MAP_LEAFBRUSHES)
+		Com_Error (ERR_DROP, "CMod_LoadQBSPLeafBrushes: bad lump size");
+	numleafbrushes = count;
+	for (i = 0; i < count; i++, in += sizeof (qbsp_dleafbrush_t), out++)
+	{
+		brush = R1BSP_ReadU32 (in);
+		if (brush >= (uint32)numbrushes || brush > 65535u)
+			Com_Error (ERR_DROP, "CMod_LoadQBSPLeafBrushes: bad brush %u at %d", brush, i);
+		*out = (uint16)brush;
+	}
+}
+
+static void CMod_LoadQBSPLeafs (lump_t *l, qboolean has_visibility)
+{
+	const byte *in = cmod_base + l->fileofs;
+	cleaf_t *out = map_leafs;
+	uint32 cluster, area, first, span;
+	int i, empty = -1, count = l->filelen / sizeof (qbsp_dleaf_t);
+
+	if (l->filelen % sizeof (qbsp_dleaf_t) || count < 1 || count >= MAX_MAP_LEAFS)
+		Com_Error (ERR_DROP, "CMod_LoadQBSPLeafs: bad lump size");
+	numleafs = count;
+	numclusters = 0;
+	for (i = 0; i < count; i++, in += sizeof (qbsp_dleaf_t), out++)
+	{
+		out->contents = R1BSP_ReadI32 (in);
+		cluster = R1BSP_QBSPLeafCluster (in, has_visibility);
+		area = R1BSP_ReadU32 (in + 8);
+		first = R1BSP_ReadU32 (in + 44);
+		span = R1BSP_ReadU32 (in + 48);
+		if ((has_visibility && cluster != (uint32)-1 &&
+				cluster >= R1BSP_ReadU32 (map_visibility)) ||
+			area >= (uint32)numareas || first > 65535u || span > 65535u ||
+			(uint64)first + span > (uint32)numleafbrushes)
+			Com_Error (ERR_DROP, "CMod_LoadQBSPLeafs: bad reference in leaf %d", i);
+		out->cluster = cluster == (uint32)-1 ? -1 : (int)cluster;
+		out->area = (int)area;
+		out->firstleafbrush = (uint16)first;
+		out->numleafbrushes = (uint16)span;
+		if (out->cluster >= numclusters)
+			numclusters = out->cluster + 1;
+		if (i && !out->contents && empty == -1)
+			empty = i;
+	}
+	if (map_leafs[0].contents != CONTENTS_SOLID || empty == -1)
+		Com_Error (ERR_DROP, "CMod_LoadQBSPLeafs: missing solid or empty leaf");
+	solidleaf = 0;
+	emptyleaf = empty;
+}
+
+static void CMod_LoadQBSPNodes (lump_t *l)
+{
+	const byte *in = cmod_base + l->fileofs;
+	cnode_t *out = map_nodes;
+	bsp38_node_graph_error_t graph_error;
+	bsp38_node_graph_status_t graph_status;
+	uint32 plane;
+	int i, j, count = l->filelen / sizeof (qbsp_dnode_t);
+
+	if (l->filelen % sizeof (qbsp_dnode_t) || count < 1 ||
+		count > MAX_MAP_NODES - 6)
+		Com_Error (ERR_DROP, "CMod_LoadQBSPNodes: bad lump size");
+	graph_status = BSP38_ValidateNodeGraphLayoutLimit (in, count, numleafs,
+		sizeof (qbsp_dnode_t), offsetof (qbsp_dnode_t, children), 256,
+		&graph_error);
+	if (graph_status != BSP38_NODE_GRAPH_OK)
+		Com_Error (ERR_DROP, "CMod_LoadQBSPNodes: bad graph (%d) at node %d child %d",
+			graph_status, graph_error.node, graph_error.side);
+	numnodes = count;
+	for (i = 0; i < count; i++, out++, in += sizeof (qbsp_dnode_t))
+	{
+		plane = R1BSP_ReadU32 (in);
+		if (plane >= (uint32)numplanes)
+			Com_Error (ERR_DROP, "CMod_LoadQBSPNodes: bad plane in node %d", i);
+		out->plane = map_planes + plane;
+		out->fastplane = map_fastplanes + plane;
+		for (j = 0; j < 2; j++)
+			out->children[j] = R1BSP_ReadI32 (in + 4 + j * 4);
 	}
 }
 
@@ -460,13 +634,13 @@ void CMod_LoadAreas (lump_t *l)
 {
 	int			i;
 	carea_t		*out;
-	darea_t 	*in;
+	const byte *in;
 	int			count;
 
 	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+	if (l->filelen % sizeof (darea_t))
 		Com_Error (ERR_DROP, "CMod_LoadAreas: funny lump size");
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (darea_t);
 
 	if (count > MAX_MAP_AREAS)
 		Com_Error (ERR_DROP, "Map has too many areas");
@@ -474,10 +648,10 @@ void CMod_LoadAreas (lump_t *l)
 	out = map_areas;
 	numareas = count;
 
-	for ( i=0 ; i<count ; i++, in++, out++)
+	for (i = 0; i < count; i++, in += sizeof (darea_t), out++)
 	{
-		out->numareaportals = LittleLong (in->numareaportals);
-		out->firstareaportal = LittleLong (in->firstareaportal);
+		out->numareaportals = R1BSP_ReadI32 (in);
+		out->firstareaportal = R1BSP_ReadI32 (in + 4);
 		out->floodvalid = 0;
 		out->floodnum = 0;
 	}
@@ -490,34 +664,35 @@ CMod_LoadAreaPortals
 */
 void CMod_LoadAreaPortals (lump_t *l)
 {
-#if Q_BIGENDIAN
 	int			i;
-#endif
 	dareaportal_t		*out;
-	dareaportal_t 	*in;
-	int			count;
+	const byte *in;
+	int count, highest = -1;
 
 	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % sizeof(*in))
+	if (l->filelen % sizeof (dareaportal_t))
 		Com_Error (ERR_DROP, "CMod_LoadAreaPortals: funny lump size");
 
-	count = l->filelen / sizeof(*in);
+	count = l->filelen / sizeof (dareaportal_t);
 
-	if (count > MAX_MAP_AREAS)
-		Com_Error (ERR_DROP, "Map has too many areas");
+	if (count > MAX_MAP_AREAPORTALS)
+		Com_Error (ERR_DROP, "Map has too many area portals");
 
 	out = map_areaportals;
 	numareaportals = count;
 
-#if Q_BIGENDIAN
-	for ( i=0 ; i<count ; i++, in++, out++)
+	for (i = 0; i < count; i++, in += sizeof (dareaportal_t), out++)
 	{
-		out->portalnum = LittleLong (in->portalnum);
-		out->otherarea = LittleLong (in->otherarea);
+		out->portalnum = R1BSP_ReadI32 (in);
+		out->otherarea = R1BSP_ReadI32 (in + 4);
+		if (out->portalnum < 0 || out->portalnum >= MAX_MAP_AREAPORTALS)
+			Com_Error (ERR_DROP, "CMod_LoadAreaPortals: bad portal state index %d", out->portalnum);
+		if (out->portalnum > highest)
+			highest = out->portalnum;
 	}
-#else
-	memcpy (out, in, sizeof(dareaportal_t)*count);
-#endif
+	/* Portal numbers index portalopen, not the areaportal record array. */
+	if (highest + 1 > numareaportals)
+		numareaportals = highest + 1;
 }
 
 /*
@@ -527,24 +702,11 @@ CMod_LoadVisibility
 */
 void CMod_LoadVisibility (lump_t *l)
 {
-#if Q_BIGENDIAN
-	int		i;
-#endif
-
 	numvisibility = l->filelen;
 	if (l->filelen > MAX_MAP_VISIBILITY)
 		Com_Error (ERR_DROP, "Map has too large visibility lump");
 
 	memcpy (map_visibility, cmod_base + l->fileofs, l->filelen);
-
-#if Q_BIGENDIAN
-	map_vis->numclusters = LittleLong (map_vis->numclusters);
-	for (i=0 ; i<map_vis->numclusters ; i++)
-	{
-		map_vis->bitofs[i][0] = LittleLong (map_vis->bitofs[i][0]);
-		map_vis->bitofs[i][1] = LittleLong (map_vis->bitofs[i][1]);
-	}
-#endif
 }
 
 
@@ -580,6 +742,530 @@ qboolean CM_MapWillLoad (const char *name)
 	return false;
 }
 
+enum
+{
+	CM_BSP38_OK,
+	CM_BSP38_SHORT,
+	CM_BSP38_IDENT,
+	CM_BSP38_VERSION,
+	CM_BSP38_LUMP
+};
+
+// Decode a private header copy before the collision loader publishes map state.
+static int CMod_DecodeBSP38Header (const void *buffer, uint32 length,
+	dheader_t *header, int *bad_lump)
+{
+	int i, offset, size;
+
+	if (length < sizeof (*header))
+		return CM_BSP38_SHORT;
+
+	memcpy (header, buffer, sizeof (*header));
+	header->ident = LittleLong (header->ident);
+	header->version = LittleLong (header->version);
+	if (header->ident != IDBSPHEADER)
+		return CM_BSP38_IDENT;
+	if (header->version != BSPVERSION)
+		return CM_BSP38_VERSION;
+
+	for (i = 0; i < MAX_LUMPS; i++)
+	{
+		offset = LittleLong (header->lumps[i].fileofs);
+		size = LittleLong (header->lumps[i].filelen);
+		header->lumps[i].fileofs = offset;
+		header->lumps[i].filelen = size;
+		if (i == LUMP_POP)
+			continue; // unused in BSP38; old maps may contain invalid POP fields
+		if (offset < 0 || size < 0 || (uint32)offset > length ||
+			(uint32)size > length - (uint32)offset)
+		{
+			*bad_lump = i;
+			return CM_BSP38_LUMP;
+		}
+	}
+	return CM_BSP38_OK;
+}
+
+/* Validate classic collision references before checksum publication. The disk
+ * records are read fieldwise so valid odd-offset IBSP lumps remain usable. */
+static qboolean CMod_QBSPValidVisibility (const byte *vis, uint32 length,
+	uint32 clusters);
+
+static const char *CMod_ValidateIBSPCollisionRecords (const byte *file,
+	const dheader_t *header)
+{
+	const byte *p;
+	bsp38_node_graph_error_t graph_error;
+	bsp38_node_graph_status_t graph_status;
+	uint32 i, j, first, span, plane, brush, visclusters = 0;
+	uint32 planes, texinfos, brushes, sides, leafbrushes, leafs, areas, portals;
+	uint32 nodes, models, faces, leaffaces, vertices, edges, surfedges;
+	float value;
+	int texinfo, cluster, area, headnode, firstedge, numedges, surfedge;
+	qboolean empty = false;
+
+	if (header->lumps[LUMP_PLANES].filelen % sizeof (dplane_t) ||
+		header->lumps[LUMP_VERTEXES].filelen % sizeof (dvertex_t) ||
+		header->lumps[LUMP_TEXINFO].filelen % sizeof (texinfo_t) ||
+		header->lumps[LUMP_NODES].filelen % sizeof (dnode_t) ||
+		header->lumps[LUMP_MODELS].filelen % sizeof (dmodel_t) ||
+		header->lumps[LUMP_FACES].filelen % sizeof (dface_t) ||
+		header->lumps[LUMP_LEAFFACES].filelen % sizeof (uint16) ||
+		header->lumps[LUMP_EDGES].filelen % sizeof (dedge_t) ||
+		header->lumps[LUMP_SURFEDGES].filelen % sizeof (int32) ||
+		header->lumps[LUMP_BRUSHES].filelen % sizeof (dbrush_t) ||
+		header->lumps[LUMP_BRUSHSIDES].filelen % sizeof (dbrushside_t) ||
+		header->lumps[LUMP_LEAFBRUSHES].filelen % sizeof (uint16) ||
+		header->lumps[LUMP_LEAFS].filelen % sizeof (dleaf_t) ||
+		header->lumps[LUMP_AREAS].filelen % sizeof (darea_t) ||
+		header->lumps[LUMP_AREAPORTALS].filelen % sizeof (dareaportal_t))
+		return "invalid classic collision record stride";
+	planes = header->lumps[LUMP_PLANES].filelen / sizeof (dplane_t);
+	vertices = header->lumps[LUMP_VERTEXES].filelen / sizeof (dvertex_t);
+	texinfos = header->lumps[LUMP_TEXINFO].filelen / sizeof (texinfo_t);
+	nodes = header->lumps[LUMP_NODES].filelen / sizeof (dnode_t);
+	models = header->lumps[LUMP_MODELS].filelen / sizeof (dmodel_t);
+	faces = header->lumps[LUMP_FACES].filelen / sizeof (dface_t);
+	leaffaces = header->lumps[LUMP_LEAFFACES].filelen / sizeof (uint16);
+	edges = header->lumps[LUMP_EDGES].filelen / sizeof (dedge_t);
+	surfedges = header->lumps[LUMP_SURFEDGES].filelen / sizeof (int32);
+	brushes = header->lumps[LUMP_BRUSHES].filelen / sizeof (dbrush_t);
+	sides = header->lumps[LUMP_BRUSHSIDES].filelen / sizeof (dbrushside_t);
+	leafbrushes = header->lumps[LUMP_LEAFBRUSHES].filelen / sizeof (uint16);
+	leafs = header->lumps[LUMP_LEAFS].filelen / sizeof (dleaf_t);
+	areas = header->lumps[LUMP_AREAS].filelen / sizeof (darea_t);
+	portals = header->lumps[LUMP_AREAPORTALS].filelen / sizeof (dareaportal_t);
+	if (!planes || !texinfos || !nodes || !models || !leafs ||
+		planes > MAX_MAP_PLANES || vertices > MAX_MAP_VERTS ||
+		texinfos > MAX_MAP_TEXINFO ||
+		nodes > MAX_MAP_NODES || models >= MAX_MAP_MODELS ||
+		faces > MAX_MAP_FACES || leaffaces > MAX_MAP_LEAFFACES ||
+		edges > MAX_MAP_EDGES || surfedges >= MAX_MAP_SURFEDGES ||
+		brushes > MAX_MAP_BRUSHES || sides > MAX_MAP_BRUSHSIDES ||
+		leafbrushes >= MAX_MAP_LEAFBRUSHES || leafs > MAX_MAP_LEAFS ||
+		areas > MAX_MAP_AREAS || portals > MAX_MAP_AREAPORTALS)
+		return "classic collision record count exceeds storage";
+	if (header->lumps[LUMP_VISIBILITY].filelen)
+	{
+		p = file + header->lumps[LUMP_VISIBILITY].fileofs;
+		if (header->lumps[LUMP_VISIBILITY].filelen < 4 ||
+			header->lumps[LUMP_VISIBILITY].filelen > MAX_MAP_VISIBILITY)
+			return "invalid classic visibility length";
+		visclusters = R1BSP_ReadU32 (p);
+		if (!CMod_QBSPValidVisibility (p,
+				header->lumps[LUMP_VISIBILITY].filelen, visclusters))
+			return "invalid classic visibility offset or RLE row";
+	}
+
+	p = file + header->lumps[LUMP_PLANES].fileofs;
+	for (i = 0; i < planes; i++, p += sizeof (dplane_t))
+	{
+		for (j = 0; j < 4; j++)
+		{
+			value = R1BSP_ReadFloat (p + j * 4);
+			if (!(value >= -1000000 && value <= 1000000))
+				return "unsafe classic plane coordinate";
+		}
+		if (R1BSP_ReadU32 (p + 16) > 5)
+			return "invalid classic plane type";
+	}
+	p = file + header->lumps[LUMP_TEXINFO].fileofs;
+	for (i = 0; i < texinfos; i++, p += sizeof (texinfo_t))
+	{
+		texinfo = R1BSP_ReadI32 (p + offsetof (texinfo_t, nexttexinfo));
+		if (texinfo > 0 && (uint32)texinfo >= texinfos)
+			return "classic texture animation exceeds texture table";
+	}
+	if (!R1BSP_ValidTextureAnimations (
+			file + header->lumps[LUMP_TEXINFO].fileofs, texinfos))
+		return "classic texture animation enters unrelated cycle";
+	p = file + header->lumps[LUMP_EDGES].fileofs;
+	for (i = 0; i < edges; i++, p += sizeof (dedge_t))
+	{
+		if (R1BSP_ReadU16 (p) >= vertices ||
+			R1BSP_ReadU16 (p + 2) >= vertices)
+			return "classic edge vertex exceeds vertex lump";
+	}
+	p = file + header->lumps[LUMP_SURFEDGES].fileofs;
+	for (i = 0; i < surfedges; i++, p += sizeof (int32))
+	{
+		surfedge = R1BSP_ReadI32 (p);
+		if (surfedge == INT_MIN ||
+			(uint32)(surfedge < 0 ? -surfedge : surfedge) >= edges)
+			return "classic surfedge index exceeds edge lump";
+	}
+	p = file + header->lumps[LUMP_FACES].fileofs;
+	for (i = 0; i < faces; i++, p += sizeof (dface_t))
+	{
+		firstedge = R1BSP_ReadI32 (p + offsetof (dface_t, firstedge));
+		numedges = R1BSP_ReadI16 (p + offsetof (dface_t, numedges));
+		texinfo = R1BSP_ReadI16 (p + offsetof (dface_t, texinfo));
+		if (R1BSP_ReadU16 (p + offsetof (dface_t, planenum)) >= planes ||
+			firstedge < 0 || numedges < 0 || texinfo < 0 ||
+			(uint32)texinfo >= texinfos ||
+			(uint64)(uint32)firstedge + (uint32)numedges > surfedges)
+			return "classic face reference exceeds plane, texture or surfedge lump";
+	}
+	p = file + header->lumps[LUMP_LEAFFACES].fileofs;
+	for (i = 0; i < leaffaces; i++, p += sizeof (uint16))
+	{
+		if (R1BSP_ReadU16 (p) >= faces)
+			return "classic leaf face index exceeds face lump";
+	}
+
+	p = file + header->lumps[LUMP_NODES].fileofs;
+	for (i = 0; i < nodes; i++, p += sizeof (dnode_t))
+	{
+		if (R1BSP_ReadU32 (p) >= planes)
+			return "classic node plane exceeds plane lump";
+		first = R1BSP_ReadU16 (p + offsetof (dnode_t, firstface));
+		span = R1BSP_ReadU16 (p + offsetof (dnode_t, numfaces));
+		if (first + span > faces)
+			return "classic node face span exceeds lump";
+	}
+	graph_status = BSP38_ValidateNodeGraph (
+		file + header->lumps[LUMP_NODES].fileofs, nodes, leafs, &graph_error);
+	if (graph_status != BSP38_NODE_GRAPH_OK)
+		return "invalid classic node child graph";
+
+	p = file + header->lumps[LUMP_MODELS].fileofs;
+	for (i = 0; i < models; i++, p += sizeof (dmodel_t))
+	{
+		for (j = 0; j < 9; j++)
+		{
+			value = R1BSP_ReadFloat (p + j * 4);
+			if (!(value >= -1000000 && value <= 1000000))
+				return "unsafe classic submodel coordinate";
+		}
+		headnode = R1BSP_ReadI32 (p + offsetof (dmodel_t, headnode));
+		if ((headnode >= 0 && (uint32)headnode >= nodes) ||
+			(headnode < 0 && headnode < -(int)leafs))
+			return "classic submodel headnode exceeds node lump";
+		first = R1BSP_ReadU32 (p + offsetof (dmodel_t, firstface));
+		span = R1BSP_ReadU32 (p + offsetof (dmodel_t, numfaces));
+		if ((uint64)first + span > faces)
+			return "classic submodel face span exceeds lump";
+	}
+
+	p = file + header->lumps[LUMP_BRUSHES].fileofs;
+	for (i = 0; i < brushes; i++, p += sizeof (dbrush_t))
+	{
+		first = R1BSP_ReadU32 (p);
+		span = R1BSP_ReadU32 (p + 4);
+		if ((uint64)first + span > sides)
+			return "classic brush side span exceeds lump";
+	}
+	p = file + header->lumps[LUMP_BRUSHSIDES].fileofs;
+	for (i = 0; i < sides; i++, p += sizeof (dbrushside_t))
+	{
+		plane = R1BSP_ReadU16 (p);
+		texinfo = R1BSP_ReadI16 (p + 2);
+		if (plane >= planes || texinfo >= (int)texinfos)
+			return "classic brush side has invalid plane or texture";
+	}
+	p = file + header->lumps[LUMP_LEAFBRUSHES].fileofs;
+	for (i = 0; i < leafbrushes; i++, p += sizeof (uint16))
+	{
+		brush = R1BSP_ReadU16 (p);
+		if (brush >= brushes)
+			return "classic leaf brush index exceeds brush lump";
+	}
+	p = file + header->lumps[LUMP_LEAFS].fileofs;
+	for (i = 0; i < leafs; i++, p += sizeof (dleaf_t))
+	{
+		if (i == 0 && R1BSP_ReadI32 (p) != CONTENTS_SOLID)
+			return "classic leaf zero is not solid";
+		if (i && !R1BSP_ReadI32 (p))
+			empty = true;
+		cluster = R1BSP_ReadI16 (p + offsetof (dleaf_t, cluster));
+		area = R1BSP_ReadI16 (p + offsetof (dleaf_t, area));
+		if ((visclusters && cluster >= (int)visclusters) ||
+			area < 0 || (uint32)area >= areas)
+			return "classic leaf cluster or area exceeds table";
+		first = R1BSP_ReadU16 (p + offsetof (dleaf_t, firstleafface));
+		span = R1BSP_ReadU16 (p + offsetof (dleaf_t, numleaffaces));
+		if (first + span > leaffaces)
+			return "classic leaf face span exceeds lump";
+		first = R1BSP_ReadU16 (p + offsetof (dleaf_t, firstleafbrush));
+		span = R1BSP_ReadU16 (p + offsetof (dleaf_t, numleafbrushes));
+		if (first + span > leafbrushes)
+			return "classic leaf brush span exceeds lump";
+	}
+	if (!empty)
+		return "classic map has no empty leaf";
+	p = file + header->lumps[LUMP_AREAS].fileofs;
+	for (i = 0; i < areas; i++, p += sizeof (darea_t))
+	{
+		first = R1BSP_ReadU32 (p + 4);
+		span = R1BSP_ReadU32 (p);
+		if ((uint64)first + span > portals)
+			return "classic area portal span exceeds lump";
+	}
+	p = file + header->lumps[LUMP_AREAPORTALS].fileofs;
+	for (i = 0; i < portals; i++, p += sizeof (dareaportal_t))
+	{
+		if (R1BSP_ReadU32 (p) >= MAX_MAP_AREAPORTALS ||
+			R1BSP_ReadU32 (p + 4) >= areas)
+			return "classic area portal has invalid reference";
+	}
+	return NULL;
+}
+
+/* CM_DecompressVis has no input-length argument. Validate every QBSP RLE row
+ * before that function can be reached; repeated PVS/PHS offsets are checked
+ * only once to keep large but bounded visibility tables inexpensive. */
+static qboolean CMod_QBSPValidVisibility (const byte *vis, uint32 length,
+	uint32 clusters)
+{
+	byte *checked;
+	uint32 header_size, row, i, j, offset, pos, expanded, run, work = 0;
+	qboolean valid = false;
+
+	if (!clusters || clusters > MAX_MAP_LEAFS)
+		return false;
+	header_size = 4 + clusters * 8;
+	if (length < header_size)
+		return false;
+	row = (clusters + 7) >> 3;
+	checked = calloc (length, 1);
+	if (!checked)
+		return false;
+	for (i = 0; i < clusters; i++)
+	{
+		for (j = 0; j < 2; j++)
+		{
+			offset = R1BSP_ReadU32 (vis + 4 + i * 8 + j * 4);
+			if (offset < header_size || offset >= length)
+				goto done;
+			if (checked[offset])
+				continue;
+			pos = offset;
+			expanded = 0;
+			while (expanded < row)
+			{
+				if (pos >= length || work >= 16u * MAX_MAP_VISIBILITY)
+					goto done;
+				work++;
+				if (vis[pos])
+				{
+					pos++;
+					expanded++;
+					continue;
+				}
+				if (pos + 1 >= length || work >= 16u * MAX_MAP_VISIBILITY)
+					goto done;
+				work++;
+				run = vis[pos + 1];
+				if (!run || run > row - expanded)
+					goto done;
+				pos += 2;
+				expanded += run;
+			}
+			checked[offset] = 1;
+		}
+	}
+	valid = true;
+done:
+	free (checked);
+	return valid;
+}
+
+/* Admit only QBSP records representable by the existing collision arrays and
+ * game/peer interface. This runs on the loaded bytes before checksum or
+ * cmod_base publication; IBSP continues through its original loader path. */
+static const char *CMod_ValidateQBSPMap (const byte *file,
+	const r1bsp_disk_layout_t *layout)
+{
+	const byte *p, *vis;
+	bsp38_node_graph_error_t graph_error;
+	bsp38_node_graph_status_t graph_status;
+	uint32 i, j, plane, texinfo, brush, cluster, area, first, span;
+	uint32 visclusters = 0, maxcluster = 0;
+	float value;
+	qboolean empty = false;
+	int shared_visible, nexttexinfo;
+	if (!layout->count[LUMP_TEXINFO] || !layout->count[LUMP_PLANES] ||
+		!layout->count[LUMP_LEAFS] || !layout->count[LUMP_NODES] ||
+		!layout->count[LUMP_MODELS] || !layout->count[LUMP_LEAFBRUSHES] ||
+		!layout->count[LUMP_AREAS] ||
+		layout->count[LUMP_MODELS] > MAX_MODELS - 2)
+		return "missing required lump or peer model limit exceeded";
+	if (layout->count[LUMP_LEAFS] >= MAX_MAP_LEAFS ||
+		layout->count[LUMP_PLANES] + 12 > MAX_MAP_PLANES ||
+		layout->count[LUMP_NODES] + 6 > MAX_MAP_NODES ||
+		layout->count[LUMP_BRUSHES] + 1 > MAX_MAP_BRUSHES ||
+		layout->count[LUMP_BRUSHSIDES] + 6 > MAX_MAP_BRUSHSIDES ||
+		layout->count[LUMP_LEAFBRUSHES] + 1 > MAX_MAP_LEAFBRUSHES)
+		return "not enough room for collision box hull";
+	if (layout->filelen[LUMP_VISIBILITY])
+	{
+		vis = file + layout->fileofs[LUMP_VISIBILITY];
+		if (layout->filelen[LUMP_VISIBILITY] < 4)
+			return "invalid visibility header, offset, or RLE row";
+		visclusters = R1BSP_ReadU32 (vis);
+		if (!CMod_QBSPValidVisibility (vis, layout->filelen[LUMP_VISIBILITY],
+				visclusters))
+			return "invalid visibility header, offset, or RLE row";
+	}
+
+	p = file + layout->fileofs[LUMP_PLANES];
+	for (i = 0; i < layout->count[LUMP_PLANES]; i++, p += sizeof (dplane_t))
+	{
+		for (j = 0; j < 4; j++)
+		{
+			value = R1BSP_ReadFloat (p + j * 4);
+			if (!(value >= -1000000 && value <= 1000000))
+				return "unsafe plane coordinate";
+		}
+		if (R1BSP_ReadU32 (p + 16) > 5)
+			return "invalid plane type";
+	}
+
+	p = file + layout->fileofs[LUMP_TEXINFO];
+	for (i = 0; i < layout->count[LUMP_TEXINFO]; i++, p += sizeof (texinfo_t))
+	{
+		for (j = 0; j < 8; j++)
+		{
+			value = R1BSP_ReadFloat (p + j * 4);
+			if (!(value >= -1000000 && value <= 1000000))
+				return "unsafe texture coordinate";
+		}
+		if (!memchr (p + offsetof (texinfo_t, texture), 0,
+				sizeof (((texinfo_t *)0)->texture)))
+			return "unterminated texture name";
+		nexttexinfo = R1BSP_ReadI32 (p + offsetof (texinfo_t, nexttexinfo));
+		if (nexttexinfo > 0 &&
+			(uint32)nexttexinfo >= layout->count[LUMP_TEXINFO])
+			return "texture animation exceeds texture table";
+	}
+	if (!R1BSP_ValidTextureAnimations (file + layout->fileofs[LUMP_TEXINFO],
+			layout->count[LUMP_TEXINFO]))
+		return "texture animation enters unrelated cycle";
+
+	p = file + layout->fileofs[LUMP_BRUSHES];
+	for (i = 0; i < layout->count[LUMP_BRUSHES]; i++, p += sizeof (dbrush_t))
+	{
+		first = R1BSP_ReadU32 (p);
+		span = R1BSP_ReadU32 (p + 4);
+		if ((uint64)first + span > layout->count[LUMP_BRUSHSIDES])
+			return "brush side span exceeds lump";
+	}
+
+	p = file + layout->fileofs[LUMP_BRUSHSIDES];
+	for (i = 0; i < layout->count[LUMP_BRUSHSIDES];
+		 i++, p += sizeof (qbsp_dbrushside_t))
+	{
+		plane = R1BSP_ReadU32 (p);
+		texinfo = R1BSP_ReadU32 (p + 4);
+		if (plane >= layout->count[LUMP_PLANES] ||
+			(texinfo != (uint32)-1 && texinfo >= layout->count[LUMP_TEXINFO]))
+			return "brush side has invalid plane or texture";
+	}
+
+	p = file + layout->fileofs[LUMP_LEAFBRUSHES];
+	for (i = 0; i < layout->count[LUMP_LEAFBRUSHES];
+		 i++, p += sizeof (qbsp_dleafbrush_t))
+	{
+		brush = R1BSP_ReadU32 (p);
+		if (brush >= layout->count[LUMP_BRUSHES] || brush > 65535u)
+			return "leaf brush index cannot fit collision storage";
+	}
+
+	p = file + layout->fileofs[LUMP_LEAFS];
+	for (i = 0; i < layout->count[LUMP_LEAFS]; i++, p += sizeof (qbsp_dleaf_t))
+	{
+		if (R1BSP_ReadI32 (p) == -1)
+			return "leaf contents uses internal-node sentinel";
+		if (i == 0 && R1BSP_ReadI32 (p) != CONTENTS_SOLID)
+			return "leaf zero is not solid";
+		if (i && !R1BSP_ReadI32 (p))
+			empty = true;
+		cluster = R1BSP_QBSPLeafCluster (p, layout->filelen[LUMP_VISIBILITY] != 0);
+		area = R1BSP_ReadU32 (p + 8);
+		if (cluster != (uint32)-1)
+		{
+			if (layout->filelen[LUMP_VISIBILITY] && cluster >= visclusters)
+				return "leaf cluster exceeds visibility table";
+			if (cluster + 1 > maxcluster)
+				maxcluster = cluster + 1;
+		}
+		if (area >= layout->count[LUMP_AREAS])
+			return "leaf area exceeds area table";
+		first = R1BSP_ReadU32 (p + 36);
+		span = R1BSP_ReadU32 (p + 40);
+		if ((uint64)first + span > layout->count[LUMP_LEAFFACES])
+			return "leaf face span exceeds lump";
+		first = R1BSP_ReadU32 (p + 44);
+		span = R1BSP_ReadU32 (p + 48);
+		if (first > 65535u || span > 65535u ||
+			(uint64)first + span > layout->count[LUMP_LEAFBRUSHES])
+			return "leaf brush span cannot fit collision storage";
+	}
+	if (!empty || (layout->filelen[LUMP_VISIBILITY] && maxcluster != visclusters))
+		return "missing empty leaf or leaf/visibility cluster mismatch";
+
+	p = file + layout->fileofs[LUMP_NODES];
+	for (i = 0; i < layout->count[LUMP_NODES]; i++, p += sizeof (qbsp_dnode_t))
+	{
+		plane = R1BSP_ReadU32 (p);
+		first = R1BSP_ReadU32 (p + 36);
+		span = R1BSP_ReadU32 (p + 40);
+		if (plane >= layout->count[LUMP_PLANES] ||
+			first > USHRT_MAX || span > USHRT_MAX ||
+			(uint64)first + span > layout->count[LUMP_FACES])
+			return "node has invalid plane or face span";
+	}
+	graph_error.node = graph_error.side = graph_error.child = -1;
+	graph_status = BSP38_ValidateNodeGraphLayoutLimit (
+		file + layout->fileofs[LUMP_NODES], layout->count[LUMP_NODES],
+		layout->count[LUMP_LEAFS], sizeof (qbsp_dnode_t),
+		offsetof (qbsp_dnode_t, children), 256, &graph_error);
+	if (graph_status != BSP38_NODE_GRAPH_OK)
+		return graph_status == BSP38_NODE_GRAPH_TOO_DEEP ?
+			"node child graph exceeds QBSP depth limit" :
+			"invalid node child graph";
+	shared_visible = R1BSP_HasSharedVisibleQBSPLeaf (file, layout);
+	if (shared_visible)
+		return shared_visible > 0 ? "shared visible QBSP leaf" :
+									"cannot validate QBSP leaf parents";
+
+	p = file + layout->fileofs[LUMP_MODELS];
+	for (i = 0; i < layout->count[LUMP_MODELS]; i++, p += sizeof (dmodel_t))
+	{
+		uint32 headnode = R1BSP_ReadU32 (p + 36);
+		for (j = 0; j < 9; j++)
+		{
+			value = R1BSP_ReadFloat (p + j * 4);
+			if (!(value >= -1000000 && value <= 1000000))
+				return "unsafe submodel coordinate";
+		}
+		first = R1BSP_ReadU32 (p + 40);
+		span = R1BSP_ReadU32 (p + 44);
+		if (headnode >= layout->count[LUMP_NODES] ||
+			(i == 0 && headnode != 0) ||
+			(uint64)first + span > layout->count[LUMP_FACES])
+			return "submodel headnode or face span is invalid";
+	}
+
+	p = file + layout->fileofs[LUMP_AREAS];
+	for (i = 0; i < layout->count[LUMP_AREAS]; i++, p += sizeof (darea_t))
+	{
+		span = R1BSP_ReadU32 (p);
+		first = R1BSP_ReadU32 (p + 4);
+		if ((uint64)first + span > layout->count[LUMP_AREAPORTALS])
+			return "area portal span exceeds lump";
+	}
+	p = file + layout->fileofs[LUMP_AREAPORTALS];
+	for (i = 0; i < layout->count[LUMP_AREAPORTALS];
+		 i++, p += sizeof (dareaportal_t))
+	{
+		if (R1BSP_ReadU32 (p) >= layout->count[LUMP_AREAPORTALS] ||
+			R1BSP_ReadU32 (p + 4) >= layout->count[LUMP_AREAS])
+			return "area portal references invalid area or portal state";
+	}
+	return NULL;
+}
+
 /*
 ==================
 CM_LoadMap
@@ -591,8 +1277,12 @@ cmodel_t *CM_LoadMap (const char *name, qboolean clientload, uint32 *checksum)
 {
 	char			newname[MAX_QPATH];
 	byte			*buf;
-	int				i;
+	int i, bad_lump = -1;
 	dheader_t		header;
+	r1bsp_disk_layout_t qbsp_layout;
+	r1bsp_disk_status_t qbsp_status;
+	const char *collision_error;
+	qboolean qbsp = false;
 	uint32			length;
 	uint32			override_bits;
 	static uint32	last_checksum;
@@ -742,54 +1432,101 @@ cmodel_t *CM_LoadMap (const char *name, qboolean clientload, uint32 *checksum)
 		}
 	}
 
+	if (length >= 4 && R1BSP_ReadU32 (buf) == IDQBSPHEADER)
+	{
+		qbsp = true;
+		qbsp_status = R1BSP_Preflight (buf, length, &qbsp_layout);
+		if (qbsp_status != R1BSP_DISK_OK)
+		{
+			FS_FreeFile (buf);
+			Com_Error (ERR_DROP, "CM_LoadMap: %s has invalid QBSP disk layout (%d, lump %d)",
+				name, qbsp_status, qbsp_layout.bad_lump);
+			return NULL;
+		}
+		collision_error = CMod_ValidateQBSPMap (buf, &qbsp_layout);
+		if (collision_error)
+		{
+			FS_FreeFile (buf);
+			Com_Error (ERR_DROP, "CM_LoadMap: %s has unsupported QBSP collision data: %s",
+				name, collision_error);
+			return NULL;
+		}
+		memset (&header, 0, sizeof (header));
+		header.ident = IDQBSPHEADER;
+		header.version = BSPVERSION;
+		for (i = 0; i < MAX_LUMPS; i++)
+		{
+			if (i == LUMP_POP)
+				continue;
+			header.lumps[i].fileofs = qbsp_layout.fileofs[i];
+			header.lumps[i].filelen = qbsp_layout.filelen[i];
+		}
+	}
+	else
+	{
+		i = CMod_DecodeBSP38Header (buf, length, &header, &bad_lump);
+		if (i != CM_BSP38_OK)
+		{
+			FS_FreeFile (buf);
+			if (i == CM_BSP38_SHORT)
+				Com_Error (ERR_DROP, "CM_LoadMap: %s has a truncated BSP38 header", name);
+			else if (i == CM_BSP38_IDENT)
+				Com_Error (ERR_DROP, "CM_LoadMap: %s is not an IBSP map", name);
+			else if (i == CM_BSP38_VERSION)
+				Com_Error (ERR_DROP, "CM_LoadMap: %s has unsupported BSP version %d", name, header.version);
+			else
+				Com_Error (ERR_DROP, "CM_LoadMap: %s has invalid BSP lump %d (offset %d, size %d)",
+					name, bad_lump, header.lumps[bad_lump].fileofs,
+					header.lumps[bad_lump].filelen);
+			return NULL;
+		}
+		collision_error = CMod_ValidateIBSPCollisionRecords (buf, &header);
+		if (collision_error)
+		{
+			FS_FreeFile (buf);
+			Com_Error (ERR_DROP, "CM_LoadMap: %s has invalid IBSP collision data: %s",
+				name, collision_error);
+			return NULL;
+		}
+	}
+
 	if (!(override_bits & 2))
 		last_checksum = LittleLong (Com_BlockChecksum (buf, length));
-
 	*checksum = last_checksum;
-
-	header = *(dheader_t *)buf;
-
 	cmod_base = (byte *)buf;
 	cmod_size = length;
 
-	//r1: check header pointers point within allocated data
-	for (i = 0; i < MAX_LUMPS; i++)
-	{
-		//for some reason there are unused lumps with invalid values
-		if (i == LUMP_POP)
-			continue;
-
-		if (header.lumps[i].fileofs < 0 || header.lumps[i].filelen < 0 ||
-			header.lumps[i].fileofs + header.lumps[i].filelen > cmod_size)
-			Com_Error (ERR_DROP, "CM_LoadMap: lump %d offset %d of size %d is out of bounds\n%s is probably truncated or otherwise corrupted", i, header.lumps[i].fileofs, header.lumps[i].filelen, name);
-	}
-
-#if Q_BIGENDIAN
-	for (i=0 ; i<sizeof(dheader_t)/4 ; i++)
-		((int *)&header)[i] = LittleLong ( ((int *)&header)[i]);
-#endif
-
-	if (header.version != BSPVERSION)
-	{
-		//r1: free
-		FS_FreeFile (buf);
-		Com_Error (ERR_DROP, "CM_LoadMap: %s has wrong version number (%i should be %i)"
-		, name, header.version, BSPVERSION);
-	}
-
 	// load into heap
 	// FIXME: any of these functions can Com_Error, we need to free buf.
-	CMod_LoadSurfaces (&header.lumps[LUMP_TEXINFO]);
-	CMod_LoadLeafs (&header.lumps[LUMP_LEAFS]);
-	CMod_LoadLeafBrushes (&header.lumps[LUMP_LEAFBRUSHES]);
-	CMod_LoadPlanes (&header.lumps[LUMP_PLANES]);
-	CMod_LoadBrushes (&header.lumps[LUMP_BRUSHES]);
-	CMod_LoadBrushSides (&header.lumps[LUMP_BRUSHSIDES]);
-	CMod_LoadSubmodels (&header.lumps[LUMP_MODELS]);
-	CMod_LoadNodes (&header.lumps[LUMP_NODES]);
-	CMod_LoadAreas (&header.lumps[LUMP_AREAS]);
-	CMod_LoadAreaPortals (&header.lumps[LUMP_AREAPORTALS]);
-	CMod_LoadVisibility (&header.lumps[LUMP_VISIBILITY]);
+	if (qbsp)
+	{
+		CMod_LoadSurfaces (&header.lumps[LUMP_TEXINFO]);
+		CMod_LoadQBSPPlanes (&header.lumps[LUMP_PLANES]);
+		CMod_LoadBrushes (&header.lumps[LUMP_BRUSHES]);
+		CMod_LoadQBSPLeafBrushes (&header.lumps[LUMP_LEAFBRUSHES]);
+		CMod_LoadQBSPBrushSides (&header.lumps[LUMP_BRUSHSIDES]);
+		CMod_LoadAreas (&header.lumps[LUMP_AREAS]);
+		CMod_LoadAreaPortals (&header.lumps[LUMP_AREAPORTALS]);
+		CMod_LoadVisibility (&header.lumps[LUMP_VISIBILITY]);
+		CMod_LoadQBSPLeafs (&header.lumps[LUMP_LEAFS],
+			header.lumps[LUMP_VISIBILITY].filelen != 0);
+		CMod_LoadQBSPNodes (&header.lumps[LUMP_NODES]);
+		CMod_LoadSubmodels (&header.lumps[LUMP_MODELS]);
+	}
+	else
+	{
+		CMod_LoadSurfaces (&header.lumps[LUMP_TEXINFO]);
+		CMod_LoadLeafs (&header.lumps[LUMP_LEAFS]);
+		CMod_LoadLeafBrushes (&header.lumps[LUMP_LEAFBRUSHES]);
+		CMod_LoadPlanes (&header.lumps[LUMP_PLANES]);
+		CMod_LoadBrushes (&header.lumps[LUMP_BRUSHES]);
+		CMod_LoadBrushSides (&header.lumps[LUMP_BRUSHSIDES]);
+		CMod_LoadSubmodels (&header.lumps[LUMP_MODELS]);
+		CMod_LoadNodes (&header.lumps[LUMP_NODES]);
+		CMod_LoadAreas (&header.lumps[LUMP_AREAS]);
+		CMod_LoadAreaPortals (&header.lumps[LUMP_AREAPORTALS]);
+		CMod_LoadVisibility (&header.lumps[LUMP_VISIBILITY]);
+	}
 
 	if (!(override_bits & 4))
 		CMod_LoadEntityString (&header.lumps[LUMP_ENTITIES]);
@@ -1809,8 +2546,10 @@ byte	*CM_ClusterPVS (int cluster)
 {
 	if (cluster == -1)
 		memset (pvsrow, 0, (numclusters+7)>>3);
+	else if (!numvisibility)
+		CM_DecompressVis (NULL, pvsrow);
 	else
-		CM_DecompressVis (map_visibility + map_vis->bitofs[cluster][DVIS_PVS], pvsrow);
+		CM_DecompressVis (map_visibility + R1BSP_ReadU32 (map_visibility + 4 + cluster * 8 + DVIS_PVS * 4), pvsrow);
 	return pvsrow;
 }
 
@@ -1818,8 +2557,10 @@ byte	*CM_ClusterPHS (int cluster)
 {
 	if (cluster == -1)
 		memset (phsrow, 0, (numclusters+7)>>3);
+	else if (!numvisibility)
+		CM_DecompressVis (NULL, phsrow);
 	else
-		CM_DecompressVis (map_visibility + map_vis->bitofs[cluster][DVIS_PHS], phsrow);
+		CM_DecompressVis (map_visibility + R1BSP_ReadU32 (map_visibility + 4 + cluster * 8 + DVIS_PHS * 4), phsrow);
 	return phsrow;
 }
 
@@ -1885,8 +2626,8 @@ void	FloodAreaConnections (void)
 
 void	EXPORT CM_SetAreaPortalState (int portalnum, qboolean open)
 {
-	if (portalnum > numareaportals)
-		Com_Error (ERR_DROP, "areaportal > numareaportals");
+	if (portalnum < 0 || portalnum >= numareaportals)
+		Com_Error (ERR_DROP, "areaportal outside loaded portal states");
 
 	portalopen[portalnum] = open;
 	FloodAreaConnections ();
@@ -2003,4 +2744,3 @@ qboolean CM_HeadnodeVisible (int nodenum, const byte *visbits)
 		return true;
 	return CM_HeadnodeVisible(node->children[1], visbits);
 }
-
