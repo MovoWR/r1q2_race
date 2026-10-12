@@ -670,10 +670,6 @@ SOURCE=.\client\anorms.h
 # End Source File
 # Begin Source File
 
-SOURCE=.\qcommon\bspfile.h
-# End Source File
-# Begin Source File
-
 SOURCE=.\client\cdaudio.h
 # End Source File
 # Begin Source File
@@ -766,6 +762,14 @@ SOURCE=.\win32\q2.ico
 # Begin Source File
 
 SOURCE=.\win32\q2.rc
+# End Source File
+# Begin Source File
+
+SOURCE=.\qcommon\ioapi.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\qcommon\unzip.c
 # End Source File
 # End Group
 # End Target

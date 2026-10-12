@@ -188,15 +188,7 @@ SOURCE=.\qgl.h
 # End Source File
 # Begin Source File
 
-SOURCE=.\qmenu.h
-# End Source File
-# Begin Source File
-
 SOURCE=..\client\ref.h
-# End Source File
-# Begin Source File
-
-SOURCE=.\ref_gl.h
 # End Source File
 # Begin Source File
 
