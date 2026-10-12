@@ -1,6 +1,6 @@
 /* MD4 context. */
 
-typedef ptrdiff_t * POINTER;
+typedef byte *POINTER;
 
 typedef struct
 {

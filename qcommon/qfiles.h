@@ -371,8 +371,11 @@ typedef struct
 #define	SURF_TRANS66	0x20
 #define	SURF_FLOWING	0x40	// scroll towards angle
 #define	SURF_NODRAW		0x80	// don't bother referencing the texture
-
-
+#define SURF_ALPHATEST		0x02000000 // rerelease/KMQuake2 masked material
+#define SURF_N64_UV		0x10000000u	  // N64 base texture coordinates have half scale
+#define SURF_N64_SCROLL_X	0x20000000u
+#define SURF_N64_SCROLL_Y	0x40000000u
+#define SURF_N64_SCROLL_FLIP	0x80000000u
 
 
 typedef struct
@@ -481,5 +484,3 @@ typedef struct
 #ifdef _WIN32
 #pragma pack (pop)
 #endif
-
-
