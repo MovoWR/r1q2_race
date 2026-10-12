@@ -1,0 +1,46 @@
+# Local build output and historical validation packages.
+/build/
+/cmake-build-*/
+
+# Local IDE settings and migration backup.
+/.idea/
+/.idea-before-move-*/
+
+# Python caches.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Compiler intermediates.
+CMakeFiles/
+*.o
+*.obj
+*.pch
+*.ipch
+*.ilk
+*.idb
+*.tlog
+
+# Legacy Unix build products (keep binaries/ makefiles).
+/binaries/client/quake2
+/binaries/r1q2ded/r1q2ded
+/binaries/game/game*.so
+/binaries/ref_gl/ref_gl.so
+
+# Local development material, not part of the source distribution.
+/.archcore/
+/AGENTS.md
+/CLAUDE.md
+/CONTRIBUTING.md
+/tests/
+/docs/
+/assets/
+/vanilla-r1q2/
+/tools/check_source_tree.py
+/tools/package_jump_port.py
+/tools/vanilla-r1q2-style.yaml
+
+# Generated legacy dependency and resource caches.
+.depends/
+*.aps
