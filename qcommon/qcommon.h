@@ -133,6 +133,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#define PRODUCTNAMELOWER "r1q2 (mod)"
 #endif
 
+#define R1Q2_CLIENT_NAME "r1q2_race"
+
 #define R1Q2_VERSION_STRING "R1Q2 " VERSION " " CPUSTRING " " __DATE__ " " BUILDSTRING
 
 //============================================================================
@@ -693,6 +695,7 @@ void 	Cvar_WriteVariables (const char *path);
 // appends lines containing "set variable value" for all variables
 // with the archive flag set to true.
 
+const char *Cvar_DefaultString (const cvar_t *var);
 void	Cvar_Init (void);
 
 char	*Cvar_Userinfo (void);

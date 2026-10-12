@@ -22,10 +22,73 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "qcommon.h"
 
 #include "redblack.h"
+#include <float.h>
+#include <limits.h>
 
 cvar_t			*cvar_vars;
 
 static struct rbtree	*cvartree;
+
+/* Private defaults keep the published cvar_t/DLL layout unchanged. A user
+ * variable starts with its creation value; its first subsystem registration
+ * supplies the engine default without replacing the saved current value. */
+typedef struct cvar_default_s
+{
+	cvar_t *var;
+	char *value;
+	qboolean registered;
+	struct cvar_default_s *next;
+} cvar_default_t;
+
+static cvar_default_t *cvar_defaults;
+
+static void Cvar_RememberDefault (cvar_t *var, const char *value, qboolean registered)
+{
+	cvar_default_t *entry;
+	char *copy;
+
+	if (!value)
+		return;
+	for (entry = cvar_defaults; entry; entry = entry->next)
+	{
+		if (entry->var != var)
+			continue;
+		if (registered && !entry->registered)
+		{
+			copy = CopyString (value, TAGMALLOC_CVAR);
+			Z_Free (entry->value);
+			entry->value = copy;
+			entry->registered = true;
+		}
+		return;
+	}
+	entry = Z_TagMalloc (sizeof (*entry), TAGMALLOC_CVAR);
+	entry->var = var;
+	entry->value = CopyString (value, TAGMALLOC_CVAR);
+	entry->registered = registered;
+	entry->next = cvar_defaults;
+	cvar_defaults = entry;
+}
+
+const char *Cvar_DefaultString (const cvar_t *var)
+{
+	const cvar_default_t *entry;
+
+	for (entry = cvar_defaults; entry; entry = entry->next)
+		if (entry->var == var)
+			return entry->value;
+	return NULL;
+}
+
+/* Private client menus can distinguish registered engine settings from user vars. */
+qboolean Cvar_IsRegistered (const cvar_t *var)
+{
+	const cvar_default_t *entry;
+	for (entry = cvar_defaults; entry; entry = entry->next)
+		if (entry->var == var)
+			return entry->registered;
+	return false;
+}
 
 //UGLY HACK for client locations
 #ifdef DEDICATED_ONLY
@@ -281,6 +344,7 @@ static cvar_t *Cvar_Add (const char *var_name, const char *var_value, int flags)
 	data = rbsearch (var->name, cvartree);
 	*data = var;
 
+	Cvar_RememberDefault (var, var_value, false);
 	return var;
 }
 
@@ -312,6 +376,7 @@ cvar_t * EXPORT Cvar_Get (const char *var_name, const char *var_value, int flags
 	if (var)
 	{
 		var->flags |= flags;
+		Cvar_RememberDefault (var, var_value, true);
 		return var;
 	}
 
@@ -327,7 +392,9 @@ cvar_t * EXPORT Cvar_Get (const char *var_name, const char *var_value, int flags
 		}
 	}
 
-	return Cvar_Add (var_name, var_value, flags);
+	var = Cvar_Add (var_name, var_value, flags);
+	Cvar_RememberDefault (var, var_value, true);
+	return var;
 }
 
 /*
@@ -367,7 +434,7 @@ static cvar_t *Cvar_Set2 (const char *var_name, const char *value, qboolean forc
 	var = Cvar_FindVar (var_name);
 	if (!var)
 	{	// create it
-		return Cvar_Get (var_name, value, 0);
+		return Cvar_Add (var_name, value, 0);
 	}
 
 	if (var->flags & (CVAR_USERINFO | CVAR_SERVERINFO))
@@ -502,7 +569,13 @@ cvar_t *Cvar_FullSet (const char *var_name, const char *value, int flags)
 	var = Cvar_FindVar (var_name);
 	if (!var)
 	{	// create it
-		return Cvar_Get (var_name, value, flags);
+		if ((flags & (CVAR_USERINFO | CVAR_SERVERINFO)) &&
+			(!Cvar_InfoValidate (var_name) || !Cvar_InfoValidate (value)))
+		{
+			Com_Printf ("invalid info cvar name or value\n", LOG_GENERAL);
+			return NULL;
+		}
+		return Cvar_Add (var_name, value, flags);
 	}
 
 	var->modified = true;
@@ -691,6 +764,123 @@ static void Cvar_Set_f (void)
 	}
 }
 
+/* Racing configuration conveniences use native protection, latching and
+ * changed callbacks. Existing set syntax and archive serialization remain. */
+static void Cvar_SetFlag_f (void)
+{
+	cvar_t *var;
+	const char *name, *value;
+	int flags;
+
+	if (Cmd_Argc () < 3)
+	{
+		Com_Printf ("usage: %s <variable> <value>\n", LOG_GENERAL, Cmd_Argv (0));
+		return;
+	}
+	name = Cmd_Argv (1);
+	value = Cmd_Args2 (2);
+	flags = !strcmp (Cmd_Argv (0), "seta") ? CVAR_ARCHIVE :
+		!strcmp (Cmd_Argv (0), "setu")	   ? CVAR_USERINFO :
+											 CVAR_SERVERINFO;
+	if ((flags & (CVAR_USERINFO | CVAR_SERVERINFO)) &&
+		(!Cvar_InfoValidate (name) || !Cvar_InfoValidate (value)))
+	{
+		Com_Printf ("invalid info cvar name or value\n", LOG_GENERAL);
+		return;
+	}
+	var = Cvar_FindVar (name);
+	if (var && (var->flags & CVAR_NOSET))
+	{
+		Cvar_Set (name, value);
+		return;
+	}
+	var = Cvar_Set (name, value);
+	if (!var)
+		return;
+	var->flags |= flags;
+	if (flags & CVAR_USERINFO)
+		userinfo_modified = true;
+}
+
+static qboolean Cvar_Decimal (const char *text, double *value)
+{
+	const char *p;
+	qboolean dot, digit;
+
+	p = text;
+	if (*p == '-')
+		p++;
+	dot = digit = false;
+	for (; *p; p++)
+	{
+		if (*p >= '0' && *p <= '9')
+			digit = true;
+		else if (*p == '.' && !dot)
+			dot = true;
+		else
+			return false;
+	}
+	if (!digit)
+		return false;
+	*value = atof (text);
+	return *value >= -FLT_MAX && *value <= FLT_MAX;
+}
+
+static void Cvar_Inc_f (void)
+{
+	cvar_t *var;
+	double value, delta;
+	char text[32];
+
+	if (Cmd_Argc () < 2 || Cmd_Argc () > 3)
+	{
+		Com_Printf ("usage: %s <variable> [value]\n", LOG_GENERAL, Cmd_Argv (0));
+		return;
+	}
+	var = Cvar_FindVar (Cmd_Argv (1));
+	if (!var || !Cvar_Decimal (var->string, &value))
+	{
+		Com_Printf ("%s is not a numeric variable\n", LOG_GENERAL, Cmd_Argv (1));
+		return;
+	}
+	delta = 1;
+	if (Cmd_Argc () == 3 && !Cvar_Decimal (Cmd_Argv (2), &delta))
+	{
+		Com_Printf ("increment must be a finite decimal number\n", LOG_GENERAL);
+		return;
+	}
+	if (!strcmp (Cmd_Argv (0), "dec"))
+		delta = -delta;
+	value += delta;
+	/* Native cvars also cache an int: reject results outside that range. */
+	if (!(value >= INT_MIN && value <= 2147483520.0))
+	{
+		Com_Printf ("increment is outside the native cvar range\n", LOG_GENERAL);
+		return;
+	}
+	Com_sprintf (text, sizeof (text), "%g", value);
+	Cvar_Set (var->name, text);
+}
+
+static void Cvar_Reset_f (void)
+{
+	cvar_t *var;
+	const char *value;
+
+	if (Cmd_Argc () != 2)
+	{
+		Com_Printf ("usage: creset <variable>\n", LOG_GENERAL);
+		return;
+	}
+	var = Cvar_FindVar (Cmd_Argv (1));
+	value = Cvar_DefaultString (var);
+	if (!var || !value)
+	{
+		Com_Printf ("%s has no registered default\n", LOG_GENERAL, Cmd_Argv (1));
+		return;
+	}
+	Cvar_Set (var->name, value);
+}
 
 /*
 ============
@@ -868,6 +1058,12 @@ void Cvar_Init (void)
 	cvartree = rbinit ((int (EXPORT *)(const void *, const void *))strcmp, 0);
 
 	Cmd_AddCommand ("set", Cvar_Set_f);
+	Cmd_AddCommand ("seta", Cvar_SetFlag_f);
+	Cmd_AddCommand ("setu", Cvar_SetFlag_f);
+	Cmd_AddCommand ("sets", Cvar_SetFlag_f);
+	Cmd_AddCommand ("inc", Cvar_Inc_f);
+	Cmd_AddCommand ("dec", Cvar_Inc_f);
+	Cmd_AddCommand ("creset", Cvar_Reset_f);
 	Cmd_AddCommand ("cvarlist", Cvar_List_f);
 	Cmd_AddCommand ("cvarhelp", Cvar_Help_f);
 
