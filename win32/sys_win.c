@@ -1881,7 +1881,7 @@ DWORD R1Q2ExceptionHandler (DWORD exceptionCode, LPEXCEPTION_POINTERS exceptionI
 
 	for (;;)
 	{
-		snprintf (tempPath, sizeof(tempPath)-1, "%s\\R1Q2CrashLog%.4d-%.2d-%.2d%_%d.txt", searchPath, timeInfo.wYear, timeInfo.wMonth, timeInfo.wDay, i);
+		snprintf (tempPath, sizeof(tempPath)-1, "%s\\R1Q2CrashLog%.4d-%.2d-%.2d_%d.txt", searchPath, timeInfo.wYear, timeInfo.wMonth, timeInfo.wDay, i);
 		if (Sys_FileLength (tempPath) == -1)
 			break;
 		i++;
@@ -2030,7 +2030,7 @@ DWORD R1Q2ExceptionHandler (DWORD exceptionCode, LPEXCEPTION_POINTERS exceptionI
 		"This crash appears to have occured in the '%s' module.%s\r\n\r\n", szModuleName, gameMsg);
 #endif
 
-	fprintf (fhReport, "**** UNHANDLED EXCEPTION: %x\r\nFault address: %I64p (%s)\r\n", exceptionCode, InstructionPtr, szModuleName);
+	fprintf (fhReport, "**** UNHANDLED EXCEPTION: %x\r\nFault address: %p (%s)\r\n", exceptionCode, (void *)(UINT_PTR)InstructionPtr, szModuleName);
 
 	fprintf (fhReport, PRODUCTNAME " module: %s(%s) (Version: %s)\r\n", binary_name, R1BINARY, Cvar_VariableString ("version"));
 	fprintf (fhReport, "Windows version: %d.%d (Build %d) %s\r\n\r\n", osInfo.dwMajorVersion, osInfo.dwMinorVersion, osInfo.dwBuildNumber, osInfo.szCSDVersion);
