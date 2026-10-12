@@ -35,6 +35,16 @@ binaries/r1q2ded/Makefile is for the R1Q2 server.
 binaries/client/Makefile is for the R1Q2 client (buggy).
 binaries/game/Makefile is for the baseq2 Game DLL.
 
+The optional OpenAL client backend is disabled by default. To include it, install
+OpenAL development headers and pkg-config, clean the client objects, then use
+make -C binaries client USE_OPENAL=1. Clean the client objects before switching
+this flag because the legacy Makefile does not track compiler-option changes.
+At runtime the loader searches for libopenal.so.1, then libopenal.so, using the
+system loader's search path. Explicit custom driver names do not use that fallback.
+The default remains s_initsound 1; s_initsound 2 followed by snd_restart selects
+the compiled OpenAL backend. See README.md for the separate static
+Windows profile, which does not require an OpenAL DLL.
+
 Windows
 -------
 Windows Visual Studio 6.0 project files are included. All build output  will

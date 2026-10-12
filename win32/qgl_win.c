@@ -187,7 +187,7 @@ void ( APIENTRY * qglGetTexGenfv )(GLenum coord, GLenum pname, GLfloat *params);
 void ( APIENTRY * qglGetTexGeniv )(GLenum coord, GLenum pname, GLint *params);
 void ( APIENTRY * qglGetTexImage )(GLenum target, GLint level, GLenum format, GLenum type, GLvoid *pixels);
 //void ( APIENTRY * qglGetTexLevelParameterfv )(GLenum target, GLint level, GLenum pname, GLfloat *params);
-//void ( APIENTRY * qglGetTexLevelParameteriv )(GLenum target, GLint level, GLenum pname, GLint *params);
+void (APIENTRY *qglGetTexLevelParameteriv) (GLenum target, GLint level, GLenum pname, GLint *params);
 void ( APIENTRY * qglGetTexParameterfv )(GLenum target, GLenum pname, GLfloat *params);
 void ( APIENTRY * qglGetTexParameteriv )(GLenum target, GLenum pname, GLint *params);
 void ( APIENTRY * qglHint )(GLenum target, GLenum mode);
@@ -413,6 +413,14 @@ void ( APIENTRY * qglMTexCoord2fSGIS)( GLenum, GLfloat, GLfloat );
 void ( APIENTRY * qglMTexCoord2fvSGIS)( GLenum, GLfloat *);
 void ( APIENTRY * qglActiveTextureARB) ( GLenum );
 void ( APIENTRY * qglClientActiveTextureARB) ( GLenum );
+
+void (APIENTRY *qglGenBuffers) (GLsizei, GLuint *);
+void (APIENTRY *qglDeleteBuffers) (GLsizei, const GLuint *);
+void (APIENTRY *qglBindBuffer) (GLenum, GLuint);
+void (APIENTRY *qglBufferData) (GLenum, GLsizeiptr, const GLvoid *, GLenum);
+void (APIENTRY *qglBufferSubData) (GLenum, GLintptr, GLsizeiptr, const GLvoid *);
+void (APIENTRY *qglGetBufferParameteriv) (GLenum, GLenum, GLint *);
+
 
 //r1ch
 void ( APIENTRY * qglPointParameterfARB) (GLenum, GLfloat);
@@ -905,7 +913,7 @@ void QGL_Shutdown( void )
 	qglGetTexGeniv               = NULL;
 	qglGetTexImage               = NULL;
 	//qglGetTexLevelParameterfv    = NULL;
-	//qglGetTexLevelParameteriv    = NULL;
+	qglGetTexLevelParameteriv = NULL;
 	qglGetTexParameterfv         = NULL;
 	qglGetTexParameteriv         = NULL;
 	qglHint                      = NULL;
@@ -1116,6 +1124,17 @@ void QGL_Shutdown( void )
 	qglVertex4sv                 = NULL;
 	qglVertexPointer             = NULL;
 	qglViewport                  = NULL;
+	qglActiveTextureARB = NULL;
+	qglClientActiveTextureARB = NULL;
+	qglSelectTextureSGIS = NULL;
+	qglMTexCoord2fSGIS = NULL;
+	qglMTexCoord2fvSGIS = NULL;
+	qglGenBuffers = NULL;
+	qglDeleteBuffers = NULL;
+	qglBindBuffer = NULL;
+	qglBufferData = NULL;
+	qglBufferSubData = NULL;
+	qglGetBufferParameteriv = NULL;
 
 	qglGenQueriesARB			 = NULL;
 	qglGetQueryObjectivARB		 = NULL;
@@ -1326,7 +1345,7 @@ qboolean QGL_Init( const char *dllname )
 	qglGetTexGeniv               = 	GPA( "glGetTexGeniv" );
 	qglGetTexImage               = 	GPA( "glGetTexImage" );
 	//qglGetTexLevelParameterfv    = 	GPA( "glGetLevelParameterfv" );
-	//qglGetTexLevelParameteriv    = 	GPA( "glGetLevelParameteriv" );
+	qglGetTexLevelParameteriv = GPA ("glGetTexLevelParameteriv");
 	qglGetTexParameterfv         = 	GPA( "glGetTexParameterfv" );
 	qglGetTexParameteriv         = 	GPA( "glGetTexParameteriv" );
 	qglHint                      = 	GPA( "glHint" );
@@ -1565,9 +1584,17 @@ qboolean QGL_Init( const char *dllname )
 	qglPointParameterfEXT = NULL;
 	qglPointParameterfvEXT = NULL;
 	qglColorTableEXT = NULL;
+	qglActiveTextureARB = NULL;
+	qglClientActiveTextureARB = NULL;
 	qglSelectTextureSGIS = NULL;
 	qglMTexCoord2fSGIS = NULL;
 	qglMTexCoord2fvSGIS = NULL;
+	qglGenBuffers = NULL;
+	qglDeleteBuffers = NULL;
+	qglBindBuffer = NULL;
+	qglBufferData = NULL;
+	qglBufferSubData = NULL;
+	qglGetBufferParameteriv = NULL;
 	qglBeginQueryARB = NULL;
 	qglEndQueryARB = NULL;
 	qglGenQueriesARB = NULL;

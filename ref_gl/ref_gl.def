@@ -1,3 +1,4 @@
 EXPORTS
 	GetRefAPI
 	GetExtraAPI
+	GetPresentationAPI

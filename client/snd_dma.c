@@ -20,8 +20,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // snd_dma.c -- main control for any streaming sound output device
 
 #include "client.h"
+#include "jump/jump.h"
 #include "../qcommon/redblack.h"
 #include "snd_loc.h"
+#include "snd_music.h"
+#include "snd_music_al.h"
+#include "snd_movie_al.h"
+#include "cl_movie.h"
 
 //FIXME OpenAL
 #ifdef _WIN32
@@ -62,6 +67,51 @@ static qboolean	s_registering;
 
 static int	soundtime;		// sample PAIRS
 int   		paintedtime; 	// sample PAIRS
+
+double S_MoviePaintLead (void)
+{
+	double samples;
+
+	if (dma.speed <= 0)
+		return 0;
+	samples = (double)paintedtime - (double)soundtime;
+	return samples > 0 ? samples / dma.speed : 0;
+}
+
+int S_MovieRate (void)
+{
+#ifdef USE_OPENAL
+	if (openal_active)
+		return 44100;
+#endif
+	if (sound_started && dma.speed > 0 && dma.speed <= 192000)
+		return dma.speed;
+	return 44100;
+}
+
+/* Called under the DMA lock, after sampling its cursor. Already mixed effects
+ * share this buffer, so a movie transition also discards their queued tail. */
+static void S_MovieDMAUpdate (void)
+{
+	static int was_active, was_paused;
+	static unsigned last_generation;
+	int active, paused, silence;
+	unsigned generation;
+
+	active = CL_MovieActive ();
+	paused = CL_MoviePaused ();
+	generation = CL_MovieGeneration ();
+	if ((active || was_active) && (active != was_active || paused != was_paused || generation != last_generation))
+	{
+		silence = dma.samplebits == 8 ? 0x80 : 0;
+		memset (dma.buffer, silence, (size_t)dma.samples * (dma.samplebits / 8));
+		paintedtime = soundtime;
+		s_rawend = 0;
+	}
+	was_active = active;
+	was_paused = paused;
+	last_generation = generation;
+}
 
 // during registration it is possible to have more sounds
 // than could actually be referenced during gameplay,
@@ -139,6 +189,32 @@ void S_SoundInfo_f(void)
 }
 
 #ifdef USE_OPENAL
+static void S_OpenAL_InitExtensions (void)
+{
+	alConfig.bufferiv = NULL;
+	alConfig.sourceSpatialize = false;
+	if (!s_openal_extensions->intvalue || !qalIsExtensionPresent)
+		return;
+
+	if (qalIsExtensionPresent ("AL_SOFT_loop_points") && qalGetProcAddress)
+		alConfig.bufferiv = (ALBUFFERIV)qalGetProcAddress ("alBufferiv");
+	alConfig.sourceSpatialize = qalIsExtensionPresent ("AL_SOFT_source_spatialize");
+}
+
+/* Call before base source configuration, after its allocation error check. */
+void S_OpenAL_SpatializeSource (unsigned source, qboolean spatialize)
+{
+	if (!alConfig.sourceSpatialize)
+		return;
+	qalSourcei (source, AL_SOURCE_SPATIALIZE_SOFT, spatialize);
+	if (qalGetError () != AL_NO_ERROR)
+	{
+		alConfig.sourceSpatialize = false;
+		Com_Printf ("OpenAL source spatialization unavailable; using driver defaults.\n",
+			LOG_CLIENT | LOG_WARNING);
+	}
+}
+
 static void S_OpenAL_AllocChannels (void)
 {
 	openal_channel_t	*ch;
@@ -203,11 +279,16 @@ void S_Init (int fullInit)
 #ifdef USE_OPENAL
 			if (ALimp_Init ())
 			{
+				S_OpenAL_InitExtensions ();
 				sound_started = 1;
 
 				Cmd_AddCommand("play", S_Play);
 				Cmd_AddCommand("stopsound", S_StopAllSounds);
 
+				S_MusicALInit ();
+#if defined(USE_AVCODEC) && defined(CINEMATICS)
+				S_MovieALInit ();
+#endif
 				S_OpenAL_AllocChannels ();
 				S_StopAllSounds ();	//inits freeplays
 				S_StartLocalSound ("openalinit.wav");
@@ -245,6 +326,8 @@ void S_Init (int fullInit)
 		}
 	}
 
+	if (sound_started)
+		S_MusicInit ();
 	if (!cl_quietstartup->intvalue || developer->intvalue)
 		Com_Printf("------------------------------------\n", LOG_CLIENT|LOG_NOTICE);
 }
@@ -294,6 +377,9 @@ void S_Shutdown(void)
 	int		i;
 	sfx_t	*sfx;
 
+	S_MusicShutdown ();
+	S_MusicALShutdown ();
+	S_MovieALShutdown ();
 	if (!sound_started)
 		return;
 
@@ -946,6 +1032,9 @@ void S_StartSound(vec3_t origin, int entnum, int entchannel, sfx_t *sfx, float f
 	playsound_t	*ps, *sort;
 	int			start;
 
+	if (sfx && CL_JumpMuteSound (sfx->name, entnum))
+		return;
+
 #ifdef USE_OPENAL
 	if (openal_active)
 	{
@@ -1373,7 +1462,7 @@ static void S_OpenAL_PlayChannel (openal_channel_t *ch, sfx_t *sfx)
 	ch->sfx = sfx;
 
 	qalSourcei(ch->sourceNum, AL_BUFFER, sfx->bufferNum);
-	qalSourcei(ch->sourceNum, AL_LOOPING, ch->loopSound);
+	qalSourcei (ch->sourceNum, AL_LOOPING, ch->loopSound || sfx->loopstart >= 0);
 	qalSourcei(ch->sourceNum, AL_SOURCE_RELATIVE, AL_FALSE);
 	qalSourcePlay(ch->sourceNum);
 }
@@ -1441,9 +1530,20 @@ openal_channel_t *S_OpenAL_PickChannel (int entNum, int entChannel)
 static void S_OpenAL_SpatializeChannel (openal_channel_t *ch)
 {
 	vec3_t	position;
+	qboolean fullvolume = ch->entNum == cl.playernum + 1 || !ch->distanceMult;
+
+	/* OpenAL normally leaves stereo buffers unpositioned. Match Q2PRO's
+	 * opt-in spatialization for world sounds and retain local stereo. */
+	if (alConfig.sourceSpatialize)
+	{
+		/* Legacy listener/channel updates do not check base AL errors.
+		 * Keep those pending errors distinct from this optional setter. */
+		qalGetError ();
+		S_OpenAL_SpatializeSource (ch->sourceNum, !fullvolume);
+	}
 
 	// Update position and velocity
-	if (ch->entNum == cl.playernum+1 || !ch->distanceMult)
+	if (fullvolume)
 	{
 		qalSourcefv(ch->sourceNum, AL_POSITION, s_openal_listener.position);
 		//qalSourcefv(ch->sourceNum, AL_VELOCITY, s_openal_listener.velocity);
@@ -1738,6 +1838,7 @@ void S_Update(vec3_t origin, vec3_t forward, vec3_t right, vec3_t up)
 	channel_t	*ch;
 //	channel_t	*combine;
 
+	S_MusicUpdate ();
 	if (!sound_started)
 		return;
 
@@ -1746,6 +1847,13 @@ void S_Update(vec3_t origin, vec3_t forward, vec3_t right, vec3_t up)
 	// dma buffer while loading
 	if (cls.disable_screen)
 	{
+#ifdef USE_OPENAL
+		if (openal_active)
+		{
+			S_MusicALUpdate ();
+			S_MovieALUpdate ();
+		}
+#endif
 		S_ClearBuffer ();
 		return;
 	}
@@ -1754,6 +1862,8 @@ void S_Update(vec3_t origin, vec3_t forward, vec3_t right, vec3_t up)
 	if (openal_active)
 	{
 		S_Update_OpenAL (origin, vec3_origin, forward, up);
+		S_MusicALUpdate ();
+		S_MovieALUpdate ();
 		return;
 	}
 #endif
@@ -1858,8 +1968,9 @@ void S_Update_(void)
 
 // Updates DMA time
 	GetSoundtime();
+	S_MovieDMAUpdate ();
 
-// check to make sure that we haven't overshot
+	// check to make sure that we haven't overshot
 	if (paintedtime < soundtime)
 	{
 		//Com_DPrintf ("S_Update_ : overflow\n");

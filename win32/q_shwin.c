@@ -308,8 +308,11 @@ char *Sys_FindFirst (char *path, uint32 musthave, uint32 canthave )
 	if (findhandle == INVALID_HANDLE_VALUE)
 		return NULL;
 
-	if (!CompareAttributes( findinfo.dwFileAttributes, musthave, canthave ) )
-		return NULL;
+	while (!CompareAttributes (findinfo.dwFileAttributes, musthave, canthave))
+	{
+		if (!FindNextFile (findhandle, &findinfo))
+			return NULL;
+	}
 
 	Com_sprintf (findpath, sizeof(findpath), "%s/%s", findbase, findinfo.cFileName);
 	return findpath;
@@ -322,11 +325,11 @@ char *Sys_FindNext ( uint32 musthave, uint32 canthave )
 	if (findhandle == INVALID_HANDLE_VALUE)
 		return NULL;
 
-	if (!FindNextFile (findhandle, &findinfo))
-		return NULL;
-
-	if (!CompareAttributes( findinfo.dwFileAttributes, musthave, canthave ) )
-		return NULL;
+	do
+	{
+		if (!FindNextFile (findhandle, &findinfo))
+			return NULL;
+	} while (!CompareAttributes (findinfo.dwFileAttributes, musthave, canthave));
 
 	Com_sprintf (findpath, sizeof(findpath), "%s/%s", findbase, findinfo.cFileName);
 	return findpath;

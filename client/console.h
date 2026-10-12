@@ -22,7 +22,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // console
 //
 
-#define	NUM_CON_TIMES 4
+#define NUM_CON_TIMES 16
+#define CON_MINWIDTH 10
+#define CON_MAXWIDTH 1023
+#define CON_MAXLINES (CON_TEXTSIZE / CON_MINWIDTH)
 
 #define		CON_TEXTSIZE	65536
 typedef struct
@@ -42,7 +45,8 @@ typedef struct
 	int			vislines;
 
 	unsigned	times[NUM_CON_TIMES];	// cls.realtime time the line was generated
-								// for transparent notify lines
+	unsigned char timestamp_length[CON_MAXLINES];
+	// for transparent notify lines
 } console_t;
 
 extern	console_t	con;
@@ -57,3 +61,12 @@ void Con_Print (const char *txt);
 void Con_DrawNotify (void);
 void Con_ClearNotify (void);
 void Con_ToggleConsole_f (void);
+void Con_KeyEvent (int key);
+void Con_MessageKeyEvent (int key);
+void Con_OpenChatPrompt (const char *command, const char *text);
+void Con_SaveHistory (void);
+void Con_LoadHistory (void);
+void Con_Shutdown (void);
+void Con_ConnectionEstablished (void);
+void CL_SendConsoleRcon (const netadr_t *address, const char *password, const char *command);
+void CL_SendConsoleChat (const char *command, const char *text);

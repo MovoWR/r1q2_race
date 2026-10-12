@@ -127,6 +127,173 @@ LINK32=link.exe
 # PROP Default_Filter "cpp;c;cxx;rc;def;r;odl;hpj;bat;for;f90"
 # Begin Source File
 
+SOURCE=.\client\jump\sh_nerdstats.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+
+# Begin Source File
+
+SOURCE=.\client\jump\sh_netmeter.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+
+# Begin Source File
+
+SOURCE=.\client\jump\jump_beams.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_reminders.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_widgets.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_layout.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_layout_native.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_editor.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_ui_compat.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_menu.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_script.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_ui.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_builtin_menu.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_menu_services.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_sh_commands.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_playerconfig.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_playermodels.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_demos.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_display.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_video_ui.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_browser_ui.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_servers.c
+# End Source File
+# Begin Source File
+SOURCE=.\client\jump\jump_servers_http.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_field.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_network.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+
+# Begin Source File
+
+SOURCE=.\client\jump\jump_draw.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\strafe_helper_draw.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\strafe_efficiency.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\strafe_helper_customization.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\sh_efficiency_draw.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_config.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_input.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
 SOURCE=.\win32\alw_win.c
 
 !IF  "$(CFG)" == "quake2 - Win32 Release"
@@ -173,6 +340,36 @@ SOURCE=.\client\cl_cin.c
 # Begin Source File
 
 SOURCE=.\client\cl_dll.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\cl_media.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Release"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Debug"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+
+# PROP Exclude_From_Build 1
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\cl_movie.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Release"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Debug"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+
+# PROP Exclude_From_Build 1
+
+!ENDIF
+
 # End Source File
 # Begin Source File
 
@@ -236,6 +433,24 @@ SOURCE=.\client\cl_inv.c
 # End Source File
 # Begin Source File
 
+SOURCE=.\client\jump\jump_commands.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\jump\jump_prediction.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
 SOURCE=.\client\cl_main.c
 
 !IF  "$(CFG)" == "quake2 - Win32 Release"
@@ -247,6 +462,24 @@ SOURCE=.\client\cl_main.c
 # PROP Exclude_From_Build 1
 
 !ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\cl_timing.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+# PROP Exclude_From_Build 1
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\cl_translate.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\cl_timing.h
 
 # End Source File
 # Begin Source File
@@ -354,6 +587,10 @@ SOURCE=.\qcommon\common.c
 # Begin Source File
 
 SOURCE=.\win32\conproc.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\con_prompt.c
 # End Source File
 # Begin Source File
 
@@ -537,6 +774,81 @@ SOURCE=.\qcommon\redblack.c
 # Begin Source File
 
 SOURCE=.\client\snd_dma.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Release"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Debug"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+
+# PROP Exclude_From_Build 1
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\snd_stream.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Release"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Debug"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+
+# PROP Exclude_From_Build 1
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\snd_music.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Release"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Debug"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+
+# PROP Exclude_From_Build 1
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\snd_music_al.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Release"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Debug"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+
+# PROP Exclude_From_Build 1
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\snd_movie_al.c
+
+!IF  "$(CFG)" == "quake2 - Win32 Release"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Debug"
+
+!ELSEIF  "$(CFG)" == "quake2 - Win32 Dedicated Only"
+
+# PROP Exclude_From_Build 1
+
+!ENDIF
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\client\snd_ogg.c
 
 !IF  "$(CFG)" == "quake2 - Win32 Release"
 

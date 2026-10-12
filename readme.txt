@@ -1,3 +1,9 @@
+R1Q2 Race
+=========
+For current build information, see README.md.
+
+Original upstream README (historical)
+====================================
 R1Q2 Client README (short version)
 ==================================
 Thanks for downloading R1Q2! This file is a very quick introduction to some of

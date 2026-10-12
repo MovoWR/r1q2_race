@@ -222,7 +222,16 @@ qboolean QAL_Init (const char *driver){
 	if ((alState.ALlib = dlopen(driver, RTLD_NOW)) == NULL)
 	{
 		Com_Printf("failed\n", LOG_CLIENT);
-		return false;
+		/* Let the system loader find multiarch installations, retaining the
+		 * unversioned library as a fallback for the default driver only. */
+		if (strcmp (driver, AL_DRIVER_OPENAL) || !strcmp (driver, "libopenal.so"))
+			return false;
+		Com_Printf ("...calling dlopen( 'libopenal.so' ): ", LOG_CLIENT);
+		if ((alState.ALlib = dlopen ("libopenal.so", RTLD_NOW)) == NULL)
+		{
+			Com_Printf ("failed\n", LOG_CLIENT);
+			return false;
+		}
 	}
 	Com_Printf("succeeded\n", LOG_CLIENT);
 
@@ -300,6 +309,23 @@ qboolean QAL_Init (const char *driver){
 
 	qalEAXGet					= NULL;
 	qalEAXSet					= NULL;
+
+	/* These exports are called without optional-extension guards. */
+	if (!qalcOpenDevice || !qalcCloseDevice || !qalcCreateContext ||
+		!qalcDestroyContext || !qalcMakeContextCurrent || !qalcGetString ||
+		!qalcIsExtensionPresent || !qalBufferData || !qalDeleteBuffers ||
+		!qalDeleteSources || !qalDistanceModel || !qalDopplerFactor ||
+		!qalDopplerVelocity || !qalGenBuffers || !qalGenSources || !qalGetError ||
+		!qalGetProcAddress || !qalGetSourcei || !qalGetString ||
+		!qalIsExtensionPresent || !qalListenerf || !qalListenerfv ||
+		!qalSource3f || !qalSourcef || !qalSourcefv || !qalSourcei ||
+		!qalSourcePause || !qalSourcePlay || !qalSourceQueueBuffers ||
+		!qalSourceStop || !qalSourceUnqueueBuffers)
+	{
+		Com_Printf ("...missing required OpenAL exports\n", LOG_CLIENT | LOG_WARNING);
+		QAL_Shutdown ();
+		return false;
+	}
 
 	openal_active = true;
 

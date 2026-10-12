@@ -21,6 +21,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "client.h"
 #include "snd_loc.h"
+#include "snd_music.h"
+#include "snd_movie_al.h"
+#include "cl_movie.h"
+#include <limits.h>
 
 #define	PAINTBUFFER_SIZE	8192 //2048
 portable_samplepair_t paintbuffer[PAINTBUFFER_SIZE];
@@ -218,6 +222,128 @@ CHANNEL MIXING
 void __cdecl S_PaintChannelFrom8 (channel_t *ch, sfxcache_t *sc, int endtime, int offset);
 void __cdecl S_PaintChannelFrom16 (channel_t *ch, sfxcache_t *sc, int endtime, int offset);
 
+static void S_AddStereoPaint (int *sample, double value)
+{
+	double sum = (double)*sample + value;
+	if (sum > INT_MAX)
+		*sample = INT_MAX;
+	else if (sum < INT_MIN)
+		*sample = INT_MIN;
+	else
+		*sample = (int)sum;
+}
+
+static void S_PaintChannelFromStereo (channel_t *ch, sfxcache_t *sc,
+	int count, int offset)
+{
+	const double downmix = 0.7071067811865475244;
+	qboolean full = !ch->autosound &&
+		(ch->entnum == -1 || ch->entnum == cl.playernum + 1 ||
+			!ch->dist_mult);
+	double leftvol, rightvol;
+	portable_samplepair_t *paint = paintbuffer + offset;
+	int i;
+
+	if (sc->width == 1)
+	{
+		const signed char *samples = (const signed char *)sc->data + ch->pos * 2;
+		leftvol = snd_scaletable[(ch->leftvol > 255 ? 255 : ch->leftvol) >> 3][1];
+		rightvol = snd_scaletable[(ch->rightvol > 255 ? 255 : ch->rightvol) >> 3][1];
+		for (i = 0; i < count; i++, paint++, samples += 2)
+		{
+			if (full)
+			{
+				S_AddStereoPaint (&paint->left, samples[0] * leftvol);
+				S_AddStereoPaint (&paint->right, samples[1] * leftvol);
+			}
+			else
+			{
+				double mixed = ((int)samples[0] + samples[1]) * downmix;
+				S_AddStereoPaint (&paint->left, mixed * leftvol);
+				S_AddStereoPaint (&paint->right, mixed * rightvol);
+			}
+		}
+	}
+	else
+	{
+		const int16 *samples = (const int16 *)sc->data + ch->pos * 2;
+		leftvol = (double)ch->leftvol * snd_vol / 256;
+		rightvol = (double)ch->rightvol * snd_vol / 256;
+		for (i = 0; i < count; i++, paint++, samples += 2)
+		{
+			if (full)
+			{
+				S_AddStereoPaint (&paint->left, samples[0] * leftvol);
+				S_AddStereoPaint (&paint->right, samples[1] * leftvol);
+			}
+			else
+			{
+				double mixed = ((int)samples[0] + samples[1]) * downmix;
+				S_AddStereoPaint (&paint->left, mixed * leftvol);
+				S_AddStereoPaint (&paint->right, mixed * rightvol);
+			}
+		}
+	}
+	ch->pos += count;
+}
+
+/* Pull only the current paint span after S_Update_ samples the DMA clock.
+ * Music never overwrites the cinematic raw ring. Apply gain when consumed. */
+static void S_PaintMusic (int frames)
+{
+	byte pcm[PAINTBUFFER_SIZE * 4];
+	int i, count, left, right;
+	float gain, master;
+
+	count = S_MusicRead (pcm, frames, dma.speed);
+	master = s_volume->value;
+	if (!(master >= 0))
+		master = 0;
+	if (master > 1)
+		master = 1;
+	gain = S_MusicVolume () * master * 256.0f;
+	for (i = 0; i < count; i++)
+	{
+		left = pcm[i * 4] | (pcm[i * 4 + 1] << 8);
+		right = pcm[i * 4 + 2] | (pcm[i * 4 + 3] << 8);
+		if (left >= 32768)
+			left -= 65536;
+		if (right >= 32768)
+			right -= 65536;
+		paintbuffer[i].left += (int)(left * gain);
+		paintbuffer[i].right += (int)(right * gain);
+	}
+}
+
+/* Movie timestamps use the current span's distance from the DMA cursor. */
+static void S_PaintMovie (int frames)
+{
+	byte pcm[PAINTBUFFER_SIZE * 4];
+	int i, count, left, right;
+	float master;
+
+	count = CL_MovieReadAudio (pcm, frames, dma.speed, S_MoviePaintLead ());
+	if (count < 0 || count > frames)
+		return;
+	master = s_volume->value;
+	if (!(master >= 0))
+		master = 0;
+	if (master > 1)
+		master = 1;
+	master *= 256.0f;
+	for (i = 0; i < count; i++)
+	{
+		left = pcm[i * 4] | (pcm[i * 4 + 1] << 8);
+		right = pcm[i * 4 + 2] | (pcm[i * 4 + 3] << 8);
+		if (left >= 32768)
+			left -= 65536;
+		if (right >= 32768)
+			right -= 65536;
+		paintbuffer[i].left += (int)(left * master);
+		paintbuffer[i].right += (int)(right * master);
+	}
+}
+
 void S_PaintChannels(int endtime)
 {
 	int 	i;
@@ -284,7 +410,10 @@ void S_PaintChannels(int endtime)
 		}
 
 
-	// paint in the channels.
+		S_PaintMusic (end - paintedtime);
+		S_PaintMovie (end - paintedtime);
+
+		// paint in the channels.
 		ch = channels;
 		for (i=0; i<MAX_CHANNELS ; i++, ch++)
 		{
@@ -307,8 +436,10 @@ void S_PaintChannels(int endtime)
 					break;
 
 				if (count > 0 && ch->sfx)
-				{	
-					if (sc->width == 1)// FIXME; 8 bit asm is wrong now
+				{
+					if (sc->stereo)
+						S_PaintChannelFromStereo (ch, sc, count, ltime - paintedtime);
+					else if (sc->width == 1) // FIXME; 8 bit asm is wrong now
 						S_PaintChannelFrom8(ch, sc, count,  ltime - paintedtime);
 					else
 						S_PaintChannelFrom16(ch, sc, count, ltime - paintedtime);

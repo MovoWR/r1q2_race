@@ -1,4 +1,5 @@
 #include "../client/client.h"
+#include "../client/vid_mode_menu.h"
 #include "../client/qmenu.h"
 
 #define REF_SOFT	0
@@ -38,6 +39,12 @@ static menuframework_s *s_current_menu;
 static int				s_current_menu_index;
 
 static menulist_s		s_mode_list[2];
+static int s_gl_mode_count, s_initial_gl_mode;
+static menufield_s s_custom_width, s_custom_height;
+static menulist_s s_adjustfov_box, s_borderless_box;
+static menulist_s s_native_mode;
+static menufield_s s_geometry;
+static vid_modemenu_t s_native_names;
 static menulist_s		s_ref_list[2];
 static menuslider_s		s_tq_slider;
 static menuslider_s		s_screensize_slider[2];
@@ -63,7 +70,20 @@ static void DriverCallback( void *unused )
 		s_current_menu = &s_opengl_menu;
 		s_current_menu_index = 1;
 	}
+}
 
+static void ResolutionCallback (void *unused)
+{
+	if (s_current_menu_index == OPENGL_MENU)
+	{
+		s_native_mode.curvalue = 0;
+		s_geometry.buffer[0] = 0;
+	}
+}
+
+static void NativeModeCallback (void *unused)
+{
+	s_geometry.buffer[0] = 0;
 }
 
 static void ScreenSizeCallback( void *s )
@@ -99,6 +119,30 @@ static void ResetDefaults( void *unused )
 static void ApplyChanges( void *unused )
 {
 	float gamma;
+	int mode;
+	int width, height;
+	vid_geometry_t geometry;
+
+	mode = s_mode_list[OPENGL_MENU].curvalue;
+	if (mode >= s_gl_mode_count)
+		mode = mode == s_gl_mode_count ? -2 : -1;
+	if (s_current_menu_index == OPENGL_MENU && s_geometry.buffer[0] &&
+		!VID_ParseGeometry (s_geometry.buffer, &geometry))
+	{
+		Menu_SetStatusBar (&s_opengl_menu, "Geometry: WIDTHxHEIGHT[+X+Y], dimensions 320x240 through 8192x8192");
+		return;
+	}
+	width = atoi (s_custom_width.buffer);
+	height = atoi (s_custom_height.buffer);
+	if (s_current_menu_index == OPENGL_MENU && !s_native_mode.curvalue &&
+		!s_geometry.buffer[0] && mode == -1 &&
+		(strspn (s_custom_width.buffer, "0123456789") != strlen (s_custom_width.buffer) ||
+			strspn (s_custom_height.buffer, "0123456789") != strlen (s_custom_height.buffer) ||
+			width < 64 || width >= 0x10000 || height < 48 || height >= 0x10000))
+	{
+		Menu_SetStatusBar (&s_opengl_menu, "Custom size: width 64-65535, height 48-65535");
+		return;
+	}
 
 	/*
 	** make values consistent
@@ -118,7 +162,24 @@ static void ApplyChanges( void *unused )
 	Cvar_SetValue( "vid_fullscreen", s_fs_box[s_current_menu_index].curvalue );
 	Cvar_SetValue( "gl_ext_palettedtexture", s_paletted_texture_box.curvalue );
 	Cvar_SetValue( "sw_mode", s_mode_list[SOFTWARE_MENU].curvalue );
-	Cvar_SetValue( "gl_mode", s_mode_list[OPENGL_MENU].curvalue );
+	if (s_current_menu_index == OPENGL_MENU)
+	{
+		if (mode == -1)
+		{
+			Cvar_Set ("vid_forcewidth", s_custom_width.buffer);
+			Cvar_Set ("vid_forceheight", s_custom_height.buffer);
+		}
+		else if (s_mode_list[OPENGL_MENU].curvalue != s_initial_gl_mode)
+		{
+			Cvar_SetValue ("vid_forcewidth", 0);
+			Cvar_SetValue ("vid_forceheight", 0);
+		}
+		Cvar_SetValue ("vid_mode", (float)s_native_mode.curvalue);
+		Cvar_Set ("vid_geometry", s_geometry.buffer);
+		Cvar_SetValue ("gl_mode", (float)mode);
+		Cvar_SetValue ("cl_adjustfov", (float)s_adjustfov_box.curvalue);
+		Cvar_SetValue ("vid_borderless", (float)s_borderless_box.curvalue);
+	}
 	Cvar_SetValue( "_windowed_mouse", s_windowed_mouse.curvalue);
 
 	switch ( s_ref_list[s_current_menu_index].curvalue )
@@ -184,6 +245,35 @@ void VID_MenuInit( void )
 		"[1600 1200]",
 		0
 	};
+	static const char *gl_resolutions[] = {
+		"[320 240]",
+		"[400 300]",
+		"[512 384]",
+		"[640 480]",
+		"[800 600]",
+		"[960 720]",
+		"[1024 768]",
+		"[1152 864]",
+		"[1280 1024]",
+		"[1600 1200]",
+		"[1280 720]",
+		"[1366 768]",
+		"[1600 900]",
+		"[1920 1080]",
+		"[1920 1200]",
+		"[2560 1080]",
+		"[2560 1440]",
+		"[2560 1600]",
+		"[3440 1440]",
+		"[3840 1600]",
+		"[3840 2160]",
+		"[5120 1440]",
+		"[5120 2160]",
+		"[7680 4320]",
+		"[desktop]",
+		"[custom]",
+		0
+	};
 	static const char *refs[] =
 	{
 		"[software      ]",
@@ -198,6 +288,7 @@ void VID_MenuInit( void )
 		0
 	};
 	int i;
+	float custom_width, custom_height;
 
 	if ( !gl_driver )
 		gl_driver = Cvar_Get( "gl_driver", "opengl32", 0 );
@@ -217,7 +308,73 @@ void VID_MenuInit( void )
         _windowed_mouse = Cvar_Get( "_windowed_mouse", "0", CVAR_ARCHIVE );
 
 	s_mode_list[SOFTWARE_MENU].curvalue = sw_mode->value;
-	s_mode_list[OPENGL_MENU].curvalue = gl_mode->value;
+	if (s_mode_list[SOFTWARE_MENU].curvalue < 0 || s_mode_list[SOFTWARE_MENU].curvalue > 9)
+		s_mode_list[SOFTWARE_MENU].curvalue = 0;
+	s_gl_mode_count = sizeof (gl_resolutions) / sizeof (gl_resolutions[0]) - 3;
+	if (gl_mode->intvalue == -2)
+		s_mode_list[OPENGL_MENU].curvalue = s_gl_mode_count;
+	else if (gl_mode->intvalue == -1)
+		s_mode_list[OPENGL_MENU].curvalue = s_gl_mode_count + 1;
+	else if (gl_mode->intvalue >= 0 && gl_mode->intvalue < s_gl_mode_count)
+		s_mode_list[OPENGL_MENU].curvalue = gl_mode->intvalue;
+	else
+		s_mode_list[OPENGL_MENU].curvalue = 3;
+	s_initial_gl_mode = s_mode_list[OPENGL_MENU].curvalue;
+
+	memset (&s_custom_width, 0, sizeof (s_custom_width));
+	memset (&s_custom_height, 0, sizeof (s_custom_height));
+	s_custom_width.generic.type = s_custom_height.generic.type = MTYPE_FIELD;
+	s_custom_width.generic.name = "custom width";
+	s_custom_height.generic.name = "custom height";
+	s_custom_width.generic.y = 90;
+	s_custom_height.generic.y = 100;
+	s_custom_width.generic.flags = s_custom_height.generic.flags = QMF_NUMBERSONLY;
+	s_custom_width.length = s_custom_height.length = 5;
+	s_custom_width.visible_length = s_custom_height.visible_length = 5;
+	custom_width = Cvar_VariableValue ("vid_forcewidth");
+	custom_height = Cvar_VariableValue ("vid_forceheight");
+	Com_sprintf (s_custom_width.buffer, sizeof (s_custom_width.buffer), "%d",
+		custom_width >= 64 && custom_width < 0x10000 ? (int)custom_width : 1920);
+	Com_sprintf (s_custom_height.buffer, sizeof (s_custom_height.buffer), "%d",
+		custom_height >= 48 && custom_height < 0x10000 ? (int)custom_height : 1080);
+	s_custom_width.cursor = strlen (s_custom_width.buffer);
+	s_custom_height.cursor = strlen (s_custom_height.buffer);
+	s_custom_width.generic.statusbar = s_custom_height.generic.statusbar = "Used by the custom video mode";
+
+	s_adjustfov_box.generic.type = MTYPE_SPINCONTROL;
+	s_adjustfov_box.generic.name = "widescreen FOV";
+	s_adjustfov_box.generic.y = 110;
+	s_adjustfov_box.itemnames = yesno_names;
+	s_adjustfov_box.curvalue = Cvar_Get ("cl_adjustfov", "1", CVAR_ARCHIVE)->intvalue != 0;
+	s_borderless_box.generic.type = MTYPE_SPINCONTROL;
+	s_borderless_box.generic.name = "borderless fullscreen";
+	s_borderless_box.generic.y = 120;
+	s_borderless_box.itemnames = yesno_names;
+	s_borderless_box.curvalue = Cvar_Get ("vid_borderless", "0", CVAR_ARCHIVE)->intvalue != 0;
+	memset (&s_native_mode, 0, sizeof (s_native_mode));
+	memset (&s_geometry, 0, sizeof (s_geometry));
+	if (VID_BuildModeMenu (&s_native_names, Cvar_Get ("vid_modelist", "desktop", 0)->string))
+	{
+		s_native_mode.generic.type = MTYPE_SPINCONTROL;
+		s_native_mode.generic.name = "detected mode";
+		s_native_mode.generic.y = 130;
+		s_native_mode.generic.callback = NativeModeCallback;
+		s_native_mode.generic.statusbar = "Overrides legacy resolution; geometry takes priority in a window";
+		s_native_mode.itemnames = s_native_names.names;
+		s_native_mode.curvalue = Cvar_Get ("vid_mode", "0", CVAR_ARCHIVE)->intvalue;
+		if (s_native_mode.curvalue < 0 || s_native_mode.curvalue > s_native_names.count)
+			s_native_mode.curvalue = 0;
+	}
+	s_geometry.generic.type = MTYPE_FIELD;
+	s_geometry.generic.name = "window geometry";
+	s_geometry.generic.y = 140;
+	s_geometry.generic.statusbar = "Optional WIDTHxHEIGHT[+X+Y]; fullscreen ignores this";
+	s_geometry.length = sizeof (s_geometry.buffer) - 1;
+	s_geometry.visible_length = 24;
+	Q_strncpy (s_geometry.buffer, Cvar_Get ("vid_geometry", "", CVAR_ARCHIVE)->string, sizeof (s_geometry.buffer) - 1);
+	s_geometry.buffer[sizeof (s_geometry.buffer) - 1] = 0;
+	s_geometry.cursor = strlen (s_geometry.buffer);
+	s_opengl_menu.statusbar = NULL;
 
 	if ( !scr_viewsize )
 		scr_viewsize = Cvar_Get ("viewsize", "100", CVAR_ARCHIVE);
@@ -269,7 +426,8 @@ void VID_MenuInit( void )
 		s_mode_list[i].generic.name = "video mode";
 		s_mode_list[i].generic.x = 0;
 		s_mode_list[i].generic.y = 10;
-		s_mode_list[i].itemnames = resolutions;
+		s_mode_list[i].generic.callback = ResolutionCallback;
+		s_mode_list[i].itemnames = i == OPENGL_MENU ? gl_resolutions : resolutions;
 
 		s_screensize_slider[i].generic.type	= MTYPE_SLIDER;
 		s_screensize_slider[i].generic.x		= 0;
@@ -298,13 +456,13 @@ void VID_MenuInit( void )
 		s_defaults_action[i].generic.type = MTYPE_ACTION;
 		s_defaults_action[i].generic.name = "reset to default";
 		s_defaults_action[i].generic.x    = 0;
-		s_defaults_action[i].generic.y    = 90;
+		s_defaults_action[i].generic.y = i == OPENGL_MENU ? 160 : 90;
 		s_defaults_action[i].generic.callback = ResetDefaults;
 
 		s_apply_action[i].generic.type = MTYPE_ACTION;
 		s_apply_action[i].generic.name = "apply";
 		s_apply_action[i].generic.x    = 0;
-		s_apply_action[i].generic.y    = 100;
+		s_apply_action[i].generic.y = i == OPENGL_MENU ? 170 : 100;
 		s_apply_action[i].generic.callback = ApplyChanges;
 	}
 
@@ -352,6 +510,14 @@ void VID_MenuInit( void )
 	Menu_AddItem( &s_opengl_menu, ( void * ) &s_fs_box[OPENGL_MENU] );
 	Menu_AddItem( &s_opengl_menu, ( void * ) &s_tq_slider );
 	Menu_AddItem( &s_opengl_menu, ( void * ) &s_paletted_texture_box );
+
+	Menu_AddItem (&s_opengl_menu, &s_custom_width);
+	Menu_AddItem (&s_opengl_menu, &s_custom_height);
+	Menu_AddItem (&s_opengl_menu, &s_adjustfov_box);
+	Menu_AddItem (&s_opengl_menu, &s_borderless_box);
+	if (s_native_mode.itemnames)
+		Menu_AddItem (&s_opengl_menu, &s_native_mode);
+	Menu_AddItem (&s_opengl_menu, &s_geometry);
 
 	Menu_AddItem( &s_software_menu, ( void * ) &s_defaults_action[SOFTWARE_MENU] );
 	Menu_AddItem( &s_software_menu, ( void * ) &s_apply_action[SOFTWARE_MENU] );
@@ -406,6 +572,13 @@ const char *VID_MenuKey( int key )
 
 	menuframework_s *m = s_current_menu;
 	static const char *sound = "misc/menu1.wav";
+
+	if (s_current_menu_index == OPENGL_MENU)
+	{
+		menucommon_s *item = Menu_ItemAtCursor (m);
+		if (item && item->type == MTYPE_FIELD && Field_Key ((menufield_s *)item, key))
+			return NULL;
+	}
 
 	switch ( key )
 	{

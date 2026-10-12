@@ -22,7 +22,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <io.h>
 #endif
 #include "client.h"
+#include "jump/jump.h"
 #include "../client/qmenu.h"
+#include "jump/jump_editor.h"
 
 static int	m_main_cursor;
 
@@ -121,6 +123,8 @@ static void M_PushMenu ( void (*draw) (void), const char *(*key) (int k) )
 
 void M_ForceMenuOff (void)
 {
+	CL_JumpEditorCancel ();
+	CL_JumpUIClear ();
 	m_drawfunc = 0;
 	m_keyfunc = 0;
 	cls.key_dest = key_game;
@@ -143,6 +147,16 @@ void M_PopMenu (void)
 		M_ForceMenuOff ();
 }
 
+void M_JumpPushMenu (void (*draw) (void), const char *(*key) (int))
+{
+	M_PushMenu (draw, key);
+}
+
+void M_JumpPopMenu (void)
+{
+	if (m_menudepth > 0)
+		M_PopMenu ();
+}
 
 static const char *Default_MenuKey( menuframework_s *m, int key )
 {
@@ -492,6 +506,8 @@ static const char *M_Main_Key (int key)
 
 void M_Menu_Main_f (void)
 {
+	if (CL_JumpUIMain ())
+		return;
 	M_PushMenu (M_Main_Draw, M_Main_Key);
 }
 
@@ -1113,6 +1129,13 @@ static void RailTrailFunc (void *unused)
 
 static void R1Q2_MenuInit (void)
 {
+	static const char *async_names[] = {
+		"disabled",
+		"enabled",
+		"stable commands",
+		NULL
+	};
+
 	static const char *yesno_names[] =
 	{
 		"disabled",
@@ -1190,8 +1213,8 @@ static void R1Q2_MenuInit (void)
 	s_r1q2_async.generic.y	= 70;
 	s_r1q2_async.generic.name	= "asynchronous net/fps";
 	s_r1q2_async.generic.callback = AsyncFunc;
-	s_r1q2_async.itemnames = yesno_names;
-	s_r1q2_async.curvalue = (int)ClampCvar (0, 1, Cvar_VariableValue ("cl_async"));
+	s_r1q2_async.itemnames = async_names;
+	s_r1q2_async.curvalue = (int)ClampCvar (0, 2, Cvar_VariableValue ("cl_async"));
 
 	s_r1q2_autorecord.generic.type = MTYPE_SPINCONTROL;
 	s_r1q2_autorecord.generic.x	= 0;
@@ -4067,65 +4090,9 @@ static qboolean PlayerConfig_MenuInit( void )
 	return true;
 }
 
-extern float CalcFov( float fov_x, int w, int h );
 static void PlayerConfig_MenuDraw( void )
 {
-	refdef_t refdef;
-	char scratch[MAX_QPATH];
-
-	memset( &refdef, 0, sizeof( refdef ) );
-
-	refdef.x = viddef.width / 2;
-	refdef.y = viddef.height / 2 - 72;
-	refdef.width = 144;
-	refdef.height = 168;
-	refdef.fov_x = 40;
-	refdef.fov_y = CalcFov( refdef.fov_x, refdef.width, refdef.height );
-	refdef.time = cls.realtime*0.001f;
-
-	if ( s_pmi[s_player_model_box.curvalue].skindisplaynames )
-	{
-		static int yaw;
-		//int maxframe = 29;
-		entity_t entity;
-
-		memset( &entity, 0, sizeof( entity ) );
-
-		Com_sprintf( scratch, sizeof( scratch ), "players/%s/tris.md2", s_pmi[s_player_model_box.curvalue].directory );
-		entity.model = re.RegisterModel( scratch );
-		Com_sprintf( scratch, sizeof( scratch ), "players/%s/%s.pcx", s_pmi[s_player_model_box.curvalue].directory, s_pmi[s_player_model_box.curvalue].skindisplaynames[s_player_skin_box.curvalue] );
-		entity.skin = re.RegisterSkin( scratch );
-		entity.flags = RF_FULLBRIGHT;
-		entity.origin[0] = 80;
-		entity.origin[1] = 0;
-		entity.origin[2] = 0;
-		FastVectorCopy( entity.origin, entity.oldorigin );
-		entity.frame = 0;
-		entity.oldframe = 0;
-		entity.backlerp = 0.0;
-		entity.angles[1] = (float)yaw;
-		yaw++;
-		if ( ++yaw > 360 )
-			yaw -= 360;
-
-		refdef.areabits = 0;
-		refdef.num_entities = 1;
-		refdef.entities = &entity;
-		refdef.lightstyles = 0;
-		refdef.rdflags = RDF_NOWORLDMODEL;
-
-		Menu_Draw( &s_player_config_menu );
-
-		M_DrawTextBox( (int)(( refdef.x ) * ( 320.0F / viddef.width ) - 8), (int)(( viddef.height / 2 ) * ( 240.0F / viddef.height) - 77), refdef.width / 8, refdef.height / 8 );
-		refdef.height += 4;
-
-		re.RenderFrame( &refdef );
-
-		Com_sprintf( scratch, sizeof( scratch ), "/players/%s/%s_i.pcx", 
-			s_pmi[s_player_model_box.curvalue].directory,
-			s_pmi[s_player_model_box.curvalue].skindisplaynames[s_player_skin_box.curvalue] );
-		re.DrawPic( s_player_config_menu.x - 40, refdef.y, scratch );
-	}
+	Menu_Draw (&s_player_config_menu);
 }
 
 static const char *PlayerConfig_MenuKey (int key)
@@ -4233,6 +4200,14 @@ void M_Draw (void)
 
 	// repaint everything next frame
 	SCR_DirtyScreen ();
+
+	if (CL_JumpUIActive ())
+	{
+		if (m_drawfunc)
+			m_drawfunc ();
+		m_entersound = false;
+		return;
+	}
 
 	// dim everything behind it down
 #ifdef CINEMATICS

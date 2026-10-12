@@ -38,7 +38,7 @@ void *Hunk_Begin (int maxsize, int precommit)
 	if (membase == NULL || membase == (byte *)-1)
 		Sys_Error("unable to virtual allocate %d bytes", maxsize);
 
-	*((int *)membase) = curhunksize;
+	*((int *)membase) = maxhunksize;
 
 	return membase + sizeof(int);
 }

@@ -21,7 +21,17 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "qcommon.h"
 
+#ifndef DEDICATED_ONLY
+extern qboolean CL_CommandWaitPending (void);
+extern void CL_CommandWait (void);
+#endif
+
 #include "redblack.h"
+#include <float.h>
+#ifndef DEDICATED_ONLY
+#include "../client/cl_timing.h"
+extern qboolean CL_JumpMacro (const char *name, char *out, int size);
+#endif
 
 void Cmd_ForwardToServer (void);
 
@@ -240,6 +250,12 @@ void Cbuf_Execute (void)
 	char			line[1024];
 	int				quotes;
 
+	/* Keep a wait phase until the next scheduled movement command. */
+#ifndef DEDICATED_ONLY
+	if (CL_CommandWaitPending ())
+		return;
+#endif
+
 	alias_count = 0;		// don't allow infinite alias loops
 
 	while (cmd_text.cursize)
@@ -311,6 +327,8 @@ void Cbuf_Execute (void)
 			//Com_Printf ("wait: breaking\n");
 #ifndef DEDICATED_ONLY
 			send_packet_now = true;
+			CL_TimingTrigger (CL_TIMING_WAIT);
+			CL_CommandWait ();
 #endif
 			cmd_wait = false;
 			break;
@@ -860,6 +878,8 @@ static	char		*cmd_argv[MAX_STRING_TOKENS];
 static	char		cmd_null_string[] = "";
 static	char		cmd_args[MAX_STRING_CHARS];
 static	char		cmd_buffer[MAX_STRING_CHARS*2];
+static char cmd_raw[MAX_STRING_CHARS * 2];
+static int cmd_raw_offsets[MAX_STRING_TOKENS];
 
 cmd_function_t	*cmd_functions;		// possible commands to execute
 
@@ -934,6 +954,9 @@ char *Cmd_MacroExpandString (char *text)
 	char		*scan;
 	static char	expanded[MAX_STRING_CHARS];
 	char		temporary[MAX_STRING_CHARS];
+#ifndef DEDICATED_ONLY
+	char jump_macro[MAX_STRING_CHARS];
+#endif
 	char		*start, *extra;
 	const char	*token, *cvarname;
 
@@ -996,8 +1019,13 @@ char *Cmd_MacroExpandString (char *text)
 		{
 			cvarname = token;
 		}
-	
-		token = Cvar_VariableString (cvarname);
+
+#ifndef DEDICATED_ONLY
+		if (CL_JumpMacro (cvarname, jump_macro, sizeof (jump_macro)))
+			token = jump_macro;
+		else
+#endif
+			token = Cvar_VariableString (cvarname);
 
 		j = (int)strlen(token);
 
@@ -1066,6 +1094,7 @@ void Cmd_TokenizeString (char *text, qboolean macroExpand)
 		
 	cmd_argc = 0;
 	cmd_args[0] = 0;
+	cmd_raw[0] = 0;
 	cmd_pointer = 0;
 
 	// macro expand the text
@@ -1074,6 +1103,13 @@ void Cmd_TokenizeString (char *text, qboolean macroExpand)
 
 	if (!text)
 		return;
+	if (strlen (text) >= sizeof (cmd_raw))
+	{
+		Com_Printf ("Command line too long, discarded.\n", LOG_GENERAL);
+		return;
+	}
+	strcpy (cmd_raw, text);
+	text = cmd_raw;
 
 	for (;;)
 	{
@@ -1112,7 +1148,9 @@ void Cmd_TokenizeString (char *text, qboolean macroExpand)
 				else
 					break;
 		}
-			
+
+		if (cmd_argc < MAX_STRING_TOKENS)
+			cmd_raw_offsets[cmd_argc] = (int)(text - cmd_raw);
 		com_token = COM_Parse (&text);
 		if (!text)
 			return;
@@ -1523,6 +1561,128 @@ void Cmd_List_f (void)
 	Z_Free (sortedList);
 }
 
+/* Conditional configuration commands adapted from the frozen Q2PRO donor.
+ * Preserve raw quoting and never retokenize while selecting a branch. */
+static qboolean Cmd_Decimal (const char *text, float *value)
+{
+	const char *p;
+	int dot;
+	double number;
+
+	p = text;
+	if (*p == '-')
+		p++;
+	if (!*p)
+		return false;
+	dot = 0;
+	for (; *p; p++)
+	{
+		if (*p == '.' && !dot)
+			dot = 1;
+		else if (*p < '0' || *p > '9')
+			return false;
+	}
+	number = atof (text);
+	if (!(number >= -FLT_MAX && number <= FLT_MAX))
+		return false;
+	*value = (float)number;
+	return true;
+}
+
+static qboolean Cmd_Contains (const char *text, const char *part, qboolean insensitive)
+{
+	size_t length;
+
+	if (!insensitive)
+		return strstr (text, part) != NULL;
+	length = strlen (part);
+	for (; *text; text++)
+		if (!Q_strncasecmp (text, part, (int)length))
+			return true;
+	return length == 0;
+}
+
+static void Cmd_If_f (void)
+{
+	const char *a, *b, *op, *start, *end;
+	float av, bv;
+	qboolean numeric, matched;
+	int first, split, last, length;
+	char branch[MAX_STRING_CHARS * 2];
+
+	if (Cmd_Argc () < 5)
+	{
+		Com_Printf ("usage: if <expr> <op> <expr> [then] <command> [else <command>]\n", LOG_GENERAL);
+		return;
+	}
+	a = Cmd_Argv (1);
+	op = Cmd_Argv (2);
+	b = Cmd_Argv (3);
+	numeric = Cmd_Decimal (a, &av) && Cmd_Decimal (b, &bv);
+	if (!strcmp (op, "=="))
+		matched = numeric ? av == bv : !strcmp (a, b);
+	else if (!strcmp (op, "!=") || !strcmp (op, "<>"))
+		matched = numeric ? av != bv : strcmp (a, b) != 0;
+	else if (!strcmp (op, "<") || !strcmp (op, "<=") || !strcmp (op, ">") || !strcmp (op, ">="))
+	{
+		if (!numeric)
+		{
+			Com_Printf ("Can't use '%s' with non-numeric expressions\n", LOG_GENERAL, op);
+			return;
+		}
+		if (!strcmp (op, "<"))
+			matched = av < bv;
+		else if (!strcmp (op, "<="))
+			matched = av <= bv;
+		else if (!strcmp (op, ">"))
+			matched = av > bv;
+		else
+			matched = av >= bv;
+	}
+	else if (!Q_stricmp (op, "eq"))
+		matched = !Q_stricmp (a, b);
+	else if (!Q_stricmp (op, "ne"))
+		matched = Q_stricmp (a, b) != 0;
+	else if (!Q_stricmp (op, "isin"))
+		matched = Cmd_Contains (b, a, false);
+	else if (!Q_stricmp (op, "!isin"))
+		matched = !Cmd_Contains (b, a, false);
+	else if (!Q_stricmp (op, "isini"))
+		matched = Cmd_Contains (b, a, true);
+	else if (!Q_stricmp (op, "!isini"))
+		matched = !Cmd_Contains (b, a, true);
+	else
+	{
+		Com_Printf ("Unknown operator '%s' (== != <> < <= > >= [!]isin[i] eq ne)\n", LOG_GENERAL, op);
+		return;
+	}
+	first = 4;
+	if (!Q_stricmp (Cmd_Argv (first), "then"))
+		first++;
+	for (split = first; split < Cmd_Argc (); split++)
+		if (!Q_stricmp (Cmd_Argv (split), "else"))
+			break;
+	last = matched ? split : Cmd_Argc ();
+	if (!matched)
+		first = split + 1;
+	if (first >= last)
+		return;
+	start = cmd_raw + cmd_raw_offsets[first];
+	end = last < Cmd_Argc () ? cmd_raw + cmd_raw_offsets[last] : cmd_raw + strlen (cmd_raw);
+	while (end > start && (byte)end[-1] <= ' ')
+		end--;
+	/* A quoted branch represents a complete command, possibly with ';'. */
+	if (end - start >= 2 && *start == '"' && end[-1] == '"')
+	{
+		start++;
+		end--;
+	}
+	length = (int)(end - start);
+	memcpy (branch, start, length);
+	branch[length] = 0;
+	Cbuf_InsertText (branch);
+}
+
 /*
 ============
 Cmd_Init
@@ -1543,5 +1703,5 @@ void Cmd_Init (void)
 	Cmd_AddCommand ("alias",Cmd_Alias_f);
 	Cmd_AddCommand ("aliaslist",Cmd_Aliaslist_f);
 	Cmd_AddCommand ("wait", Cmd_Wait_f);
+	Cmd_AddCommand ("if", Cmd_If_f);
 }
-

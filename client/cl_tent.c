@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl_tent.c -- client side temporary entities
 
 #include "client.h"
+#include "jump/jump.h"
 #include "localent.h"
 
 typedef enum
@@ -228,8 +229,9 @@ void CL_ClearTEnts (void)
 	memset (cl_beams, 0, sizeof(cl_beams));
 	memset (cl_explosions, 0, sizeof(cl_explosions));
 	memset (cl_lasers, 0, sizeof(cl_lasers));
+	CL_JumpClearBeams ();
 
-//ROGUE
+	//ROGUE
 	memset (cl_playerbeams, 0, sizeof(cl_playerbeams));
 	memset (cl_sustains, 0, sizeof(cl_sustains));
 //ROGUE
@@ -570,6 +572,9 @@ void CL_ParseLaser (int colors, vec3_t start, vec3_t end)
 {
 	laser_t	*l;
 	int		i;
+
+	if (CL_JumpParseLaser (start, end))
+		return;
 
 	for (i=0, l=cl_lasers ; i< MAX_LASERS ; i++, l++)
 	{
@@ -1828,6 +1833,8 @@ void CL_AddLasers (void)
 {
 	laser_t		*l;
 	int			i;
+
+	CL_JumpAddLasers ();
 
 	for (i=0, l=cl_lasers ; i< MAX_LASERS ; i++, l++)
 	{

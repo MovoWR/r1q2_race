@@ -25,7 +25,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <stdio.h>
 
 #include <GL/gl.h>
-#include <GL/glu.h>
 #include <math.h>
 
 #ifndef __linux__
@@ -37,9 +36,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "../client/ref.h"
 
 #include "qgl.h"
+#ifdef R1Q2_GL_CORE
+#include "gl_core.h"
+#endif
 
 //please keep this undefined on modified versions.
-#define R1GL_RELEASE 1
+/* #define R1GL_RELEASE 1 */
 
 #ifdef R1GL_RELEASE
 #define	REF_VERSION	"R1GL 0.1.5.42"
@@ -47,7 +49,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define REF_VERSION "R1GL015-modified"
 #endif
 
-#define	MAX_TEXTURE_DIMENSIONS	1024
+#define MAX_TEXTURE_DIMENSIONS	8192
 
 // up / down
 #define	PITCH	0
@@ -96,26 +98,48 @@ typedef enum
 typedef struct image_s
 {
 	char	name[MAX_QPATH];			// game path, including extension
-	char	basename[MAX_QPATH];				// as referenced by texinfo
+	char basename[MAX_QPATH];			// canonical file path without extension
 	imagetype_t	type;
 	int		width, height;				// source image
 	int		upload_width, upload_height;	// after power of two and picmip
 	int		registration_sequence;		// 0 = free
 	struct msurface_s	*texturechain;	// for sort-by-texture world drawing
 	unsigned long		texnum;						// gl texture binding
-	//int		detailtexnum;
+	GLuint glowtexnum;								// private companion, owned by this image
+	qboolean glow_companion;						// temporary upload bypasses color processing
+	qboolean turbulent;								// private material excludes color/invert processing
+	qboolean font;									// font and picture overrides use separate cache entries
+	int upscale_level;								// private HQ levels; logical dimensions are unchanged
+	int particle_shape;								// private generated mask: 1 soft, 2 square, 3 round
 	float	sl, tl, sh, th;				// 0,0 - 1,1 unless part of the scrap
 	//qboolean	scrap;
 	int		has_alpha;
+	int paletted; // decoded source used indexed texels, even if uploaded as RGBA
 	//unsigned int hash;
 	struct image_s	*hash_next;
 } image_t;
+
+#ifndef GL_TEXTURE_MAX_LEVEL
+#define GL_TEXTURE_MAX_LEVEL 0x813D
+#endif
+#ifndef GL_TEXTURE_LOD_BIAS
+#define GL_TEXTURE_LOD_BIAS 0x8501
+#endif
 
 #define	TEXNUM_LIGHTMAPS	1024
 #define	TEXNUM_SCRAPS		1152
 #define	TEXNUM_IMAGES		1153
 //#define TEXNUM_DETAIL		5555
-#define		MAX_GLTEXTURES	1024
+#define MAX_GLTEXTURES	8192
+/* Private names follow image/glow, postfx/bloom and the global cubemap. */
+#define MD5_RESERVED_TEXTURE_LAST (TEXNUM_IMAGES + 2 * MAX_GLTEXTURES + 5)
+#define MD5_TEXTURE_FIRST (MD5_RESERVED_TEXTURE_LAST + 1u)
+/* More than twice the 512-known-model x 32-mesh maximum live demand. */
+#define MD5_TEXTURE_NAME_COUNT 65536u
+#define JUMP_BEAM_TEXTURE (MD5_TEXTURE_FIRST + MD5_TEXTURE_NAME_COUNT)
+#define SKY_MATERIAL_TEXTURE_FIRST (JUMP_BEAM_TEXTURE + 1u)
+#define MAX_SKY_MATERIALS 128
+#define RF_SHELL_MASK (RF_SHELL_RED | RF_SHELL_GREEN | RF_SHELL_BLUE | RF_SHELL_DOUBLE | RF_SHELL_HALF_DAM)
 
 //extern	cvar_t	*con_alpha;
 
@@ -139,6 +163,8 @@ extern	qboolean load_jpg_wals;
 #define VID_ERR_INVALID_MODE		8
 
 #include "gl_model.h"
+#include "gl_shader.h"
+#include "gl_postfx.h"
 
 void GL_BeginRendering (int *x, int *y, int *width, int *height);
 void GL_EndRendering (void);
@@ -175,6 +201,16 @@ extern	int			r_visframecount;
 extern	int			r_framecount;
 extern	cplane_t	frustum[4];
 extern	int			c_brush_polys, c_alias_polys;
+extern unsigned c_world_batches, c_world_batch_vertices, c_world_batch_indices;
+extern unsigned c_world_immediate;
+void GL_ResetWorldBatches (void);
+void GL_FreeWorldBuffer (model_t *model);
+void GL_BuildWorldBuffer (model_t *model);
+void GL_UpdateWorldBuffer (void);
+void GL_PrintWorldBufferInfo (void);
+void GL_ResetAliasBatches (void);
+void GL_PrintAliasBatchInfo (void);
+extern unsigned c_alias_mesh_bytes;
 
 
 extern	int			gl_filter_min, gl_filter_max;
@@ -203,11 +239,17 @@ extern	cvar_t	*r_speeds;
 extern	cvar_t	*r_fullbright;
 extern	cvar_t	*r_novis;
 extern	cvar_t	*r_nocull;
+extern cvar_t *gl_cull_nodes;
+extern cvar_t *gl_cull_models;
 extern	cvar_t	*r_lerpmodels;
 
 extern	cvar_t	*r_lightlevel;	// FIXME: This is a HACK to get the client's light level
 
 extern cvar_t	*gl_vertex_arrays;
+extern cvar_t *gl_batch_models;
+extern cvar_t *cl_gunfov, *cl_gunalpha, *r_adjustgunfov;
+extern cvar_t *gl_md5_load, *gl_md5_use, *gl_md5_distance;
+extern cvar_t *gl_batch_2d;
 
 //extern cvar_t	*gl_ext_swapinterval;
 //extern cvar_t	*gl_ext_palettedtexture;
@@ -243,6 +285,7 @@ extern cvar_t	*gl_hudscale;
 extern cvar_t	*vid_gamma_pics;
 
 extern cvar_t	*gl_forcewidth;
+extern cvar_t *vid_modelist, *vid_mode, *vid_geometry;
 extern cvar_t	*gl_forceheight;
 
 extern cvar_t	*vid_topmost;
@@ -250,6 +293,7 @@ extern cvar_t	*vid_topmost;
 extern cvar_t	*gl_particle_min_size;
 extern cvar_t	*gl_particle_max_size;
 extern cvar_t	*gl_particle_size;
+extern cvar_t *gl_partshape;
 extern cvar_t	*gl_particle_att_a;
 extern cvar_t	*gl_particle_att_b;
 extern cvar_t	*gl_particle_att_c;
@@ -258,14 +302,18 @@ extern cvar_t	*gl_particle_att_c;
 extern	cvar_t	*gl_bitdepth;
 extern	cvar_t	*gl_mode;
 //extern	cvar_t	*gl_log;
-//extern	cvar_t	*gl_lightmap;
+extern cvar_t *gl_lightmap;
 extern	cvar_t	*gl_shadows;
 extern	cvar_t	*gl_dynamic;
+extern cvar_t *gl_lightgrid;
+extern cvar_t *gl_batch_world;
+extern cvar_t *gl_vbo;
 //extern  cvar_t  *gl_monolightmap;
 extern	cvar_t	*gl_nobind;
 extern	cvar_t	*gl_round_down;
 extern	cvar_t	*gl_picmip;
 extern	cvar_t	*gl_skymip;
+extern cvar_t *gl_drawsky;
 extern	cvar_t	*gl_showtris;
 extern	cvar_t	*gl_finish;
 extern	cvar_t	*gl_ztrick;
@@ -277,6 +325,8 @@ extern	cvar_t	*gl_polyblend;
 extern	cvar_t	*gl_flashblend;
 //extern	cvar_t	*gl_lightmaptype;
 extern	cvar_t	*gl_modulate;
+extern cvar_t *gl_modulate_world, *gl_modulate_entities, *gl_brightness;
+extern cvar_t *gl_vertexlight;
 //extern	cvar_t	*gl_playermip;
 extern	cvar_t	*gl_drawbuffer;
 //extern	cvar_t	*gl_3dlabs_broken;
@@ -292,6 +342,11 @@ extern	cvar_t	*vid_fullscreen;
 extern	cvar_t	*vid_gamma;
 
 extern	cvar_t	*gl_jpg_quality;
+extern cvar_t *gl_screenshot_format;
+extern cvar_t *gl_screenshot_quality;
+extern cvar_t *gl_screenshot_compression;
+extern cvar_t *gl_screenshot_template;
+extern cvar_t *gl_screenshot_async;
 extern	cvar_t	*gl_coloredlightmaps;
 
 extern	cvar_t	*intensity;
@@ -301,6 +356,8 @@ extern	cvar_t	*gl_alphaskins;
 extern	cvar_t	*gl_defertext;
 
 extern	cvar_t	*gl_pic_scale;
+extern cvar_t *r_override_textures, *r_texture_formats, *r_texture_overrides;
+qboolean GetWalInfo (const char *name, int *width, int *height);
 
 extern	cvar_t	*vid_restore_on_switch;
 
@@ -313,8 +370,6 @@ extern	const int		gl_alpha_format;
 extern	int		gl_tex_solid_format;
 extern	int		gl_tex_alpha_format;
 
-extern	int		global_hax_texture_x;
-extern	int		global_hax_texture_y;
 
 extern	int		c_visible_lightmaps;
 extern	int		c_visible_textures;
@@ -329,6 +384,18 @@ void GL_EnableMultitexture( qboolean enable );
 void GL_SelectTexture( GLenum );
 
 void R_LightPoint (vec3_t p, vec3_t color);
+void R_LightPointLegacy (vec3_t p, vec3_t color);
+qboolean R_ShadowPoint (vec3_t p);
+const cplane_t *R_GetShadowPlane (void);
+extern int r_shadow_stencilbits;
+void R_SampleSurfaceVertexLight (const msurface_t *surf, float s, float t,
+	byte color[4]);
+qboolean GL_LightingShader (void);
+float GL_WorldModulate (void);
+float GL_LightingBrightness (void);
+unsigned GL_LightingSequence (void);
+void GL_LightingRegister (void);
+void GL_UpdateLighting (void);
 void R_PushDlights (void);
 unsigned int hashify (const char *S);
 //====================================================================
@@ -347,28 +414,60 @@ int 	EXPORT R_Init( void *hinstance, void *hWnd );
 void	EXPORT R_Shutdown( void );
 
 void R_RenderView (refdef_t *fd);
+float R_NearClip (void);
+void R_SetModelLightLevel (float value);
 void GL_ScreenShot_f (void);
+void GL_ScreenShotJPG_f (void);
+void GL_ScreenShotPNG_f (void);
+void GL_ScreenShotTGA_f (void);
+void GL_ScreenshotPoll (void);
+void GL_ScreenshotCapture (void);
+void GL_ScreenshotShutdown (void);
 void R_DrawAliasModel (entity_t *e);
+void R_DrawMD3Model (entity_t *e);
+void R_DrawMD3ModelPass (entity_t *e, qboolean translucent);
+qboolean R_MD3HasAlphaSkin (entity_t *e);
+qboolean R_MD5Selected (const entity_t *e);
+qboolean R_MD5HasAlphaSkin (const entity_t *e);
+qboolean R_MD5Translucent (const entity_t *e);
+qboolean R_MD5WorldBounds (const entity_t *e, vec3_t mins, vec3_t maxs);
+void R_DrawMD5ModelPass (entity_t *e, qboolean translucent);
+void R_DrawCulledModelShadow (entity_t *e);
+void R_DrawOccludedModelShadow (entity_t *e);
+void R_MD5PerfBeginFrame (void);
 void R_DrawBrushModel (entity_t *e);
 void R_DrawSpriteModel (entity_t *e);
 void R_DrawBeam( entity_t *e );
 void R_DrawWorld (void);
+void GL_UpdateVertexLighting (void);
+void GL_InvalidateVertexLighting (void);
 void R_RenderDlights (void);
 void R_DrawAlphaSurfaces (void);
+void R_ClearAlphaSurfaces (void);
 void R_RenderBrushPoly (msurface_t *fa);
 void R_InitParticleTexture (void);
+image_t *R_ParticleTexture (void);
 void Draw_InitLocal (void);
 void GL_SubdivideSurface (msurface_t *fa);
+void GL_SurfaceScroll (const msurface_t *surf, qboolean warp, float *s, float *t);
+void GL_DecoupledLightmapST (const msurface_t *surf, const float *v, int block_size, float *s, float *t);
+qboolean GL_SurfaceLightmapView (const msurface_t *surf);
 qboolean R_CullBox (vec3_t mins, vec3_t maxs);
 void R_RotateForEntity (entity_t *e);
 void R_MarkLeaves (void);
 
 glpoly_t *WaterWarpPolyVerts (glpoly_t *p);
-void EmitWaterPolys (msurface_t *fa);
+void GL_WaterTexCoord (const msurface_t *fa, const float *v, float *s, float *t);
+qboolean GL_DrawIndexedWaterPolys (msurface_t *surf, qboolean lightmapped);
+void EmitWaterPolys (msurface_t *fa, image_t *image);
 void R_AddSkySurface (msurface_t *fa);
 void R_ClearSkyBox (void);
 void R_DrawSkyBox (void);
+qboolean R_DrawBrushSkySurface (msurface_t *surface, const vec3_t vieworg);
+qboolean R_SkyBrushModelRequested (void);
 void R_MarkLights (dlight_t *light, int bit, mnode_t *node);
+void R_BeginInlineDlights (entity_t *entity, model_t *model);
+void R_EndInlineDlights (void);
 
 #if 0
 short LittleShort (short l);
@@ -383,6 +482,12 @@ char	*va(char *format, ...);
 //void COM_StripExtension (char *in, char *out);
 
 void	EXPORT Draw_GetPicSize (int *w, int *h, char *name);
+void Draw_AddText (void);
+void Draw_ResetSpace (void);
+void Draw_Flush (void);
+void Draw_Reset (void);
+void Draw_BeginFrame (void);
+void Draw_PrintStats (void);
 void	EXPORT Draw_Pic (int x, int y, char *name);
 void	EXPORT Draw_StretchPic (int x, int y, int w, int h, char *name);
 void	EXPORT Draw_Char (int x, int y, int c);
@@ -390,27 +495,59 @@ void	EXPORT Draw_TileClear (int x, int y, int w, int h, char *name);
 void	EXPORT Draw_Fill (int x, int y, int w, int h, int c);
 void	EXPORT Draw_FadeScreen (void);
 void	EXPORT Draw_StretchRaw (int x, int y, int w, int h, int cols, int rows, byte *data);
+int EXPORT Draw_UpdateColorFrame (int cols, int rows, int stride,
+	const unsigned char *rgba, unsigned int data_size);
+int EXPORT Draw_ColorFrame (int x, int y, int w, int h);
 
 void	EXPORT R_BeginFrame( float camera_separation );
+void R_UpdateDrawableSize (int width, int height);
 void	EXPORT R_SetPalette ( const unsigned char *palette);
 
 int		Draw_GetPalette (void);
 
-void GL_ResampleTexture (unsigned *in, int inwidth, int inheight, unsigned *out,  int outwidth, int outheight);
+qboolean GL_ResampleTexture (unsigned *in, int inwidth, int inheight, unsigned *out, int outwidth, int outheight);
 
 struct image_s * EXPORT R_RegisterSkin (char *name);
 
 void LoadPCX (const char *filename, byte **pic, byte **palette, int *width, int *height);
-image_t *GL_LoadPic (const char *name, byte *pic, int width, int height, imagetype_t type, int bits);
+image_t *GL_LoadPic (const char *name, byte *pic, int width, int height, imagetype_t type, int bits, qboolean turbulent);
+qboolean GL_DetachScrapImage (image_t *image);
+void GL_InitLightmapWhiteTexture (void);
+int GL_LightmapWhiteTexture (void);
 image_t	*GL_FindImage (const char *name, const char *basename, imagetype_t type);
+image_t *GL_FindFontImage (const char *name);
 image_t	*GL_FindImageBase (const char *basename, imagetype_t type);
 void	GL_TextureMode( char *string );
+image_t *GL_FindWallImage (const char *name, const char *basename, qboolean turbulent);
+void GL_SkyColorPixels (byte *pixels, int width, int height);
+void GL_TextureOptionsRegister (void);
+void GL_InitTextureOptions (void);
+void GL_UpdateTextureOptions (void);
+void GL_UpdateAnisotropy (void);
+qboolean GL_TextureAnisotropySupported (void);
+qboolean GL_TextureNPOTSupported (void);
+GLfloat GL_TextureAnisotropy (void);
+GLint GL_TextureCubeFormat (void);
+int GL_PicFilter (const image_t *image);
+int GL_ImageMinFilter (const image_t *image, int filter);
+GLint GL_ImageClampMode (void);
+void Draw_InvalidateImageFilters (void);
 void	GL_ImageList_f (void);
 void	GL_Version_f (void);
 
 //void	GL_SetTexturePalette( unsigned palette[256] );
 
 void	GL_InitImages (void);
+void GL_UpdateGamma (void);
+qboolean GL_ImageShaderIntensity (void);
+qboolean GL_ImageColorProfileReady (void);
+float GL_ImageIntensityScale (void);
+void GL_ImageShaderIntensityFailure (void);
+qboolean GL_UploadRawFrame (int cols, int rows, const byte *data, const unsigned *palette);
+qboolean GL_UploadColorFrame (int cols, int rows, int stride,
+	const byte *data, unsigned int data_size);
+qboolean GL_BindColorFrame (void);
+void EXPORT R_SetPalette (const unsigned char *palette);
 void	GL_ShutdownImages (void);
 
 void	GL_FreeUnusedImages (void);
@@ -475,6 +612,7 @@ void EmptyImageCache (void);
 #define GL_GENERATE_MIPMAP_SGIS			0x8191
 #define	GL_GENERATE_MIPMAP_HINT_SGIS	0x8192
 #define GL_TEXTURE_MAX_ANISOTROPY_EXT   0x84FE
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
 
 #define GL_MULTISAMPLE_ARB                0x809D
 #define GL_SAMPLE_ALPHA_TO_COVERAGE_ARB   0x809E
@@ -505,6 +643,7 @@ typedef struct
 	qboolean	wglPFD;
 
 	int			bitDepth;
+	int max_texture_size;
 	int			r1gl_QueryBits;
 	unsigned int r1gl_Queries[MAX_ENTITIES];
 } glconfig_t;
@@ -564,12 +703,28 @@ void		GLimp_BeginFrame( float camera_separation );
 void		GLimp_BeginFrame( void );
 #endif
 void	EXPORT	GLimp_EndFrame( void );
+void R_PerfBeforeSwap (void);
+void R_PerfAfterSwap (qboolean success);
+void R_PerfMarkCapture (void);
+void R_PerfRecordUpload (unsigned int texels, unsigned int bytes);
+void GL_FreeStaticLightmapBackings (void);
 int 		GLimp_Init( void *hinstance, void *hWnd );
+qboolean GLimp_InitGamma (const byte *table);
+qboolean GLimp_UpdateGamma (const byte *table);
+void GLimp_ShutdownGamma (void);
+void GLimp_GammaActivate (qboolean active);
 void		GLimp_Shutdown( void );
 int    	GLimp_SetMode( unsigned int *pwidth, unsigned int *pheight, int mode, qboolean fullscreen );
 void	EXPORT	GLimp_AppActivate( qboolean active );
+#ifdef WIN32
+int GLimp_GetDpiScale (void);
+#endif
 void		GLimp_EnableLogging( qboolean enable );
 void		GLimp_LogNewFrame( void );
 
 
+qboolean GL_ClearErrors (void);
 void GL_CheckForError (void);
+void GL_LoadGlowImage (image_t *image);
+
+#include "gl_showtris.h"

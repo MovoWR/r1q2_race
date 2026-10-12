@@ -21,6 +21,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // 02/21/97 JCB Added extended DirectInput code to support external controllers.
 
 #include "../client/client.h"
+#include "../client/jump/jump_editor.h"
+#include "../client/jump/jump.h"
 #include "winquake.h"
 
 extern	uint32	sys_msg_time;
@@ -142,6 +144,9 @@ void IN_MLookUp (void)
 int			mouse_oldbuttonstate;
 POINT		current_pos;
 float		mouse_x, mouse_y, old_mouse_x, old_mouse_y;//, mx_accum, my_accum;
+static qboolean mouse_preview;
+/* Relative immediate reads consume motion; retain raw counts until commitment. */
+static LONG preview_mouse_x, preview_mouse_y, preview_mouse_z;
 
 int			old_x, old_y;
 
@@ -210,6 +215,7 @@ void IN_FreeDirectInput (void)
 	if (g_pMouse)
 	{
 		IDirectInputDevice8_Unacquire (g_pMouse);
+		preview_mouse_x = preview_mouse_y = preview_mouse_z = 0;
 		IDirectInputDevice8_Release (g_pMouse);
 		g_pMouse = NULL;
 	}
@@ -568,9 +574,9 @@ void IN_ReadBufferedData( usercmd_t *cmd )
         return;
    
     dwElements = DX_MOUSE_BUFFER_SIZE;
-	hr = IDirectInputDevice8_GetDeviceData (g_pMouse, sizeof(DIDEVICEOBJECTDATA),
-                                     didod, &dwElements, 0);
-    if( hr != DI_OK && hr != DI_BUFFEROVERFLOW ) 
+	hr = IDirectInputDevice8_GetDeviceData (g_pMouse, sizeof (DIDEVICEOBJECTDATA),
+		didod, &dwElements, mouse_preview ? DIGDD_PEEK : 0);
+	if( hr != DI_OK && hr != DI_BUFFEROVERFLOW ) 
     {
         // We got an error or we got DI_BUFFEROVERFLOW.
         //
@@ -596,7 +602,9 @@ void IN_ReadBufferedData( usercmd_t *cmd )
         // against the state we think the device is in,
         // and process all the states that are currently
         // different from our private state.
-        hr = IDirectInputDevice8_Acquire(g_pMouse);
+		if (mouse_preview)
+			return;
+		hr = IDirectInputDevice8_Acquire(g_pMouse);
         while( hr == DIERR_INPUTLOST ) 
             hr = IDirectInputDevice8_Acquire (g_pMouse);
 
@@ -622,7 +630,10 @@ void IN_ReadBufferedData( usercmd_t *cmd )
     // local buffer.
     for( i = 0; i < dwElements; i++ ) 
     {
-        // this will display then scan code of the key
+		/* Peeking must not emit buttons/wheel events or advance bindings. */
+		if (mouse_preview && didod[i].dwOfs != (DWORD)DIMOFS_X && didod[i].dwOfs != (DWORD)DIMOFS_Y)
+			continue;
+		// this will display then scan code of the key
         // plus a 'D' - meaning the key was pressed 
         //   or a 'U' - meaning the key was released
         /*switch( didod[ i ].dwOfs )
@@ -716,7 +727,7 @@ void IN_ReadBufferedData( usercmd_t *cmd )
 
 #ifdef _DEBUG
 				//fix non-exclusive mouse being able to click window titlebar
-				if (FLOAT_NE_ZERO (val))
+				if (!mouse_preview && FLOAT_NE_ZERO (val))
 					SetCursorPos (window_center_x, window_center_y);
 #endif
 
@@ -733,7 +744,7 @@ void IN_ReadBufferedData( usercmd_t *cmd )
 
 #ifdef _DEBUG
 				//fix non-exclusive mouse being able to click window titlebar
-				if (FLOAT_NE_ZERO (val))
+				if (!mouse_preview && FLOAT_NE_ZERO (val))
 					SetCursorPos (window_center_x, window_center_y);
 #endif
 
@@ -809,6 +820,9 @@ void IN_ReadImmediateData (usercmd_t *cmd)
         
         // If input is lost then acquire and keep trying 
 		//Com_Printf ("Acquire() from readdata\n");
+		preview_mouse_x = preview_mouse_y = preview_mouse_z = 0;
+		if (mouse_preview)
+			return;
 		hr = IDirectInputDevice8_Acquire (g_pMouse);
         //hr = g_pMouse->Acquire();
 		while( hr == DIERR_INPUTLOST )  {
@@ -821,74 +835,90 @@ void IN_ReadImmediateData (usercmd_t *cmd)
         // switching, so just try again later 
         return; 
     }
-    
-    // The dims structure now has the state of the mouse, so 
-    // display mouse coordinates (x, y, z) and buttons.
-	if (m_show->intvalue) {
-		Com_Printf ("(X=% 3.3d, Y=% 3.3d, Z=% 3.3d) B0=%c B1=%c B2=%c B3=%c B4=%c B5=%c B6=%c B7=%c\n", LOG_CLIENT,
-                         dims2.lX, dims2.lY, dims2.lZ,
-                        (dims2.rgbButtons[0] & 0x80) ? '1' : '0',
-                        (dims2.rgbButtons[1] & 0x80) ? '1' : '0',
-                        (dims2.rgbButtons[2] & 0x80) ? '1' : '0',
-                        (dims2.rgbButtons[3] & 0x80) ? '1' : '0',
-                        (dims2.rgbButtons[4] & 0x80) ? '1' : '0',
-                        (dims2.rgbButtons[5] & 0x80) ? '1' : '0',
-                        (dims2.rgbButtons[6] & 0x80) ? '1' : '0',
-                        (dims2.rgbButtons[7] & 0x80) ? '1' : '0');
-	}
 
-	for (i = 0; i < MAX_MOUSE_BUTTONS; i++)
+	/* Unsigned additions retain LONG wrap semantics without signed overflow. */
+	dims2.lX = (LONG)((DWORD)dims2.lX + (DWORD)preview_mouse_x);
+	dims2.lY = (LONG)((DWORD)dims2.lY + (DWORD)preview_mouse_y);
+	dims2.lZ = (LONG)((DWORD)dims2.lZ + (DWORD)preview_mouse_z);
+	if (mouse_preview)
 	{
-		if (old_state.rgbButtons[i] & 0x80 && !(dims2.rgbButtons[i] & 0x80))
-		{
-			Key_Event (K_MOUSE1 + i, false, sys_msg_time);
-		}
-		else if (dims2.rgbButtons[i] & 0x80 && !(old_state.rgbButtons[i] & 0x80))
-		{
-			Key_Event (K_MOUSE1 + i, true, sys_msg_time);
-		}
+		preview_mouse_x = dims2.lX;
+		preview_mouse_y = dims2.lY;
+		preview_mouse_z = dims2.lZ;
 	}
+	else
+	{
+		preview_mouse_x = preview_mouse_y = preview_mouse_z = 0;
 
-	if (dims2.lZ > 0)
-	{
-		if (cls.key_dest == key_console || cls.state <= ca_connected)
+		// The dims structure now has the state of the mouse, so
+		// display mouse coordinates (x, y, z) and buttons.
+		if (m_show->intvalue)
 		{
-			Key_Event (K_PGUP, true, 10);
-			Key_Event (K_PGUP, false, 10);
-			Key_Event (K_PGUP, true, 10);
-			Key_Event (K_PGUP, false, 10);
-			Key_Event (K_PGUP, true, 10);
-			Key_Event (K_PGUP, false, 10);
-			Key_Event (K_PGUP, true, 10);
-			Key_Event (K_PGUP, false, 10);
+			Com_Printf ("(X=% 3.3d, Y=% 3.3d, Z=% 3.3d) B0=%c B1=%c B2=%c B3=%c B4=%c B5=%c B6=%c B7=%c\n", LOG_CLIENT,
+				dims2.lX, dims2.lY, dims2.lZ,
+				(dims2.rgbButtons[0] & 0x80) ? '1' : '0',
+				(dims2.rgbButtons[1] & 0x80) ? '1' : '0',
+				(dims2.rgbButtons[2] & 0x80) ? '1' : '0',
+				(dims2.rgbButtons[3] & 0x80) ? '1' : '0',
+				(dims2.rgbButtons[4] & 0x80) ? '1' : '0',
+				(dims2.rgbButtons[5] & 0x80) ? '1' : '0',
+				(dims2.rgbButtons[6] & 0x80) ? '1' : '0',
+				(dims2.rgbButtons[7] & 0x80) ? '1' : '0');
 		}
-		else
-		{
-			Key_Event (K_MWHEELUP, true, sys_msg_time);
-			Key_Event (K_MWHEELUP, false, sys_msg_time);
-		}
-	}
-	else if (dims2.lZ < 0)
-	{
-		if (cls.key_dest == key_console || cls.state <= ca_connected)
-		{
-			Key_Event (K_PGDN, true, 10);
-			Key_Event (K_PGDN, false, 10);
-			Key_Event (K_PGDN, true, 10);
-			Key_Event (K_PGDN, false, 10);
-			Key_Event (K_PGDN, true, 10);
-			Key_Event (K_PGDN, false, 10);
-			Key_Event (K_PGDN, true, 10);
-			Key_Event (K_PGDN, false, 10);
-		}
-		else
-		{
-			Key_Event (K_MWHEELDOWN, true, sys_msg_time);
-			Key_Event (K_MWHEELDOWN, false, sys_msg_time);
-		}
-	}
 
-	memcpy (&old_state, &dims2, sizeof(old_state));
+		for (i = 0; i < MAX_MOUSE_BUTTONS; i++)
+		{
+			if (old_state.rgbButtons[i] & 0x80 && !(dims2.rgbButtons[i] & 0x80))
+			{
+				Key_Event (K_MOUSE1 + i, false, sys_msg_time);
+			}
+			else if (dims2.rgbButtons[i] & 0x80 && !(old_state.rgbButtons[i] & 0x80))
+			{
+				Key_Event (K_MOUSE1 + i, true, sys_msg_time);
+			}
+		}
+
+		if (dims2.lZ > 0)
+		{
+			if (cls.key_dest == key_console || cls.state <= ca_connected)
+			{
+				Key_Event (K_PGUP, true, 10);
+				Key_Event (K_PGUP, false, 10);
+				Key_Event (K_PGUP, true, 10);
+				Key_Event (K_PGUP, false, 10);
+				Key_Event (K_PGUP, true, 10);
+				Key_Event (K_PGUP, false, 10);
+				Key_Event (K_PGUP, true, 10);
+				Key_Event (K_PGUP, false, 10);
+			}
+			else
+			{
+				Key_Event (K_MWHEELUP, true, sys_msg_time);
+				Key_Event (K_MWHEELUP, false, sys_msg_time);
+			}
+		}
+		else if (dims2.lZ < 0)
+		{
+			if (cls.key_dest == key_console || cls.state <= ca_connected)
+			{
+				Key_Event (K_PGDN, true, 10);
+				Key_Event (K_PGDN, false, 10);
+				Key_Event (K_PGDN, true, 10);
+				Key_Event (K_PGDN, false, 10);
+				Key_Event (K_PGDN, true, 10);
+				Key_Event (K_PGDN, false, 10);
+				Key_Event (K_PGDN, true, 10);
+				Key_Event (K_PGDN, false, 10);
+			}
+			else
+			{
+				Key_Event (K_MWHEELDOWN, true, sys_msg_time);
+				Key_Event (K_MWHEELDOWN, false, sys_msg_time);
+			}
+		}
+
+		memcpy (&old_state, &dims2, sizeof (old_state));
+	}
 
 	mx = (float)dims2.lX;
 	my = (float)dims2.lY;
@@ -899,7 +929,7 @@ void IN_ReadImmediateData (usercmd_t *cmd)
 
 #ifdef _DEBUG
 	//fix non-exclusive mouse being able to click window titlebar
-	if (FLOAT_NE_ZERO(mx) || FLOAT_NE_ZERO(my))
+	if (!mouse_preview && (FLOAT_NE_ZERO (mx) || FLOAT_NE_ZERO (my)))
 		SetCursorPos (window_center_x, window_center_y);
 #endif
 
@@ -926,7 +956,7 @@ Called when the window gains focus or changes in some way
 */
 void IN_ActivateMouse (void)
 {
-	int		width, height;
+	POINT origin;
 
 	if (!mouseinitialized)
 		return;
@@ -942,6 +972,14 @@ void IN_ActivateMouse (void)
 
 	//Com_Printf ("******************* IN_ActivateMouse\n");
 
+	/* Capture the client area in virtual-desktop coordinates, on any monitor. */
+	origin.x = origin.y = 0;
+	if (!GetClientRect (cl_hwnd, &window_rect) ||
+		!ClientToScreen (cl_hwnd, &origin) ||
+		window_rect.right <= window_rect.left || window_rect.bottom <= window_rect.top)
+		return;
+	OffsetRect (&window_rect, origin.x, origin.y);
+
 	if (g_pMouse)
 	{
 		IDirectInputDevice8_Acquire (g_pMouse);
@@ -955,24 +993,6 @@ void IN_ActivateMouse (void)
 			restore_spi = SystemParametersInfo (SPI_SETMOUSE, 0, newmouseparms, 0);
 	}
 
-
-	width = GetSystemMetrics (SM_CXSCREEN);
-	height = GetSystemMetrics (SM_CYSCREEN);
-
-	GetWindowRect ( cl_hwnd, &window_rect);
-	//GetClientRect (cl_hwnd, &window_rect);
-
-	if (window_rect.left < 0)
-		window_rect.left = 0;
-
-	if (window_rect.top < 0)
-		window_rect.top = 0;
-
-	if (window_rect.right >= width)
-		window_rect.right = width-1;
-
-	if (window_rect.bottom >= height-1)
-		window_rect.bottom = height-1;
 
 	window_center_x = (window_rect.right + window_rect.left)/2;
 	window_center_y = (window_rect.top + window_rect.bottom)/2;
@@ -1007,6 +1027,7 @@ Called when the window loses focus
 */
 void IN_DeactivateMouse (void)
 {
+	preview_mouse_x = preview_mouse_y = preview_mouse_z = 0;
 	if (!mouseinitialized)
 		return;
 
@@ -1206,7 +1227,7 @@ void IN_MouseMove (usercmd_t *cmd)
 	}
 
 	// force the mouse to the center, so there's room to move
-	if (FLOAT_NE_ZERO(mx) || FLOAT_NE_ZERO(my))
+	if (!mouse_preview && (FLOAT_NE_ZERO (mx) || FLOAT_NE_ZERO (my)))
 	{
 		//Com_Printf ("******** SETCURSORPOS\n");
 		SetCursorPos (window_center_x, window_center_y);
@@ -1366,6 +1387,12 @@ void IN_Frame (void)
 	if (!mouseinitialized)
 		return;
 
+	if (CL_JumpUIActive ())
+	{
+		IN_DeactivateMouse ();
+		return;
+	}
+
 	if (!in_mouse || !in_appactive)
 	{
 		IN_DeactivateMouse ();
@@ -1392,6 +1419,22 @@ void IN_Frame (void)
 IN_Move
 ===========
 */
+void IN_PreviewMove (usercmd_t *cmd)
+{
+	float saved_x = mouse_x, saved_y = mouse_y;
+	float saved_old_x = old_mouse_x, saved_old_y = old_mouse_y;
+	POINT saved_pos = current_pos;
+
+	mouse_preview = true;
+	IN_MouseMove (cmd);
+	mouse_preview = false;
+	mouse_x = saved_x;
+	mouse_y = saved_y;
+	old_mouse_x = saved_old_x;
+	old_mouse_y = saved_old_y;
+	current_pos = saved_pos;
+}
+
 void IN_Move (usercmd_t *cmd)
 {
 	IN_MouseMove (cmd);

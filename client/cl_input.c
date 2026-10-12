@@ -20,12 +20,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl.input.c  -- builds an intended movement command to send to the server
 
 #include "client.h"
+#include "cl_timing.h"
+#include "jump/jump.h"
 
 cvar_t	*cl_nodelta;
 
 extern	uint32	sys_frame_time;
 uint32	frame_msec;
 uint32	old_sys_frame_time;
+static qboolean input_preview;
 
 /*
 ===============================================================================
@@ -254,7 +257,8 @@ void CL_BaseMove (usercmd_t *cmd)
 	int i;
 	float	tspeed;
 	float	mspeed;
-	
+
+	CL_JumpUpdateInput ();
 	//adjust for turning speed
 	if (in_speed.state & 1)
 		tspeed = (frame_msec / 1000.0f) * cl_anglespeedkey->value;
@@ -407,6 +411,7 @@ void CL_RefreshCmd (void)
 		ms = 100;
 
 	cmd->msec = ms;
+	CL_TimingRefresh ();
 
 	//update counter
 	old_sys_frame_time = sys_frame_time;
@@ -418,7 +423,11 @@ void CL_RefreshCmd (void)
 
 	//r1: send packet immediately on important events
 	if (((in_attack.state & 2) || (in_use.state & 2)))
+	{
 		send_packet_now = true;
+		CL_TimingTrigger ((in_attack.state & 2 ? CL_TIMING_ATTACK : 0) |
+			(in_use.state & 2 ? CL_TIMING_USE : 0));
+	}
 }
 
 // CL_FinalizeCmd
@@ -472,6 +481,7 @@ void CL_FinalizeCmd (void)
 
 	// set the ambient light level at the player's current position
 	cmd->lightlevel = (byte)cl_lightlevel->value;
+	CL_JumpMoveFrame ();
 }
 
 
@@ -560,7 +570,9 @@ void CL_AdjustAngles (void)
 }
 
 void CL_BaseMove_Synchronous (usercmd_t *cmd)
-{	
+{
+	if (!input_preview)
+		CL_JumpUpdateInput ();
 	CL_AdjustAngles ();
 	
 	memset (cmd, 0, sizeof(*cmd));
@@ -671,12 +683,56 @@ usercmd_t CL_CreateCmd (void)
 	IN_Move (&cmd);
 
 	CL_FinishMove (&cmd);
+	if (CL_AsyncCommandSync ())
+		CL_TimingRefresh ();
+	CL_JumpMoveFrame ();
 
 	old_sys_frame_time = sys_frame_time;
 
 //cmd.impulse = cls.framecount;
 
 	return cmd;
+}
+
+/* Build presentation input without consuming keys, impulses, filter history,
+ * or the command clock. Console bindings are executed only by the real tick. */
+qboolean CL_PreviewCmd (usercmd_t *cmd, vec3_t angles)
+{
+	kbutton_t *keys[] = { &in_klook, &in_left, &in_right, &in_forward, &in_back,
+		&in_lookup, &in_lookdown, &in_moveleft, &in_moveright, &in_strafe,
+		&in_speed, &in_use, &in_attack, &in_up, &in_down };
+	kbutton_t saved[sizeof (keys) / sizeof (keys[0])];
+	vec3_t saved_angles;
+	uint32 saved_msec = frame_msec;
+	float saved_time = cls.frametime;
+	int saved_impulse = in_impulse;
+	unsigned i;
+
+	memset (cmd, 0, sizeof (*cmd));
+	VectorCopy (cl.viewangles, angles);
+	if (!cl.cmd.msec || sys_frame_time == old_sys_frame_time)
+		return false;
+
+	for (i = 0; i < sizeof (keys) / sizeof (keys[0]); i++)
+		saved[i] = *keys[i];
+	VectorCopy (cl.viewangles, saved_angles);
+	frame_msec = sys_frame_time - old_sys_frame_time;
+	if (frame_msec > 200)
+		frame_msec = 200;
+	cls.frametime = frame_msec / 1000.0f;
+	input_preview = true;
+	CL_BaseMove_Synchronous (cmd);
+	IN_PreviewMove (cmd);
+	CL_FinishMove (cmd);
+	input_preview = false;
+	VectorCopy (cl.viewangles, angles);
+	VectorCopy (saved_angles, cl.viewangles);
+	for (i = 0; i < sizeof (keys) / sizeof (keys[0]); i++)
+		*keys[i] = saved[i];
+	in_impulse = saved_impulse;
+	frame_msec = saved_msec;
+	cls.frametime = saved_time;
+	return cmd->msec != 0;
 }
 
 void CL_SendCmd_Synchronous (void)
@@ -706,7 +762,8 @@ void CL_SendCmd_Synchronous (void)
 		if (cls.netchan.got_reliable || cls.netchan.message.cursize	|| (unsigned)(curtime - cls.netchan.last_sent) > 100 ) {
 	 		//memset (&buf, 0, sizeof(buf));
 			//Com_DPrintf ("connected: flushing netchan (len=%d, %s)\n", cls.netchan.message.cursize, MakePrintable(cls.netchan.message.data));
-			Netchan_Transmit (&cls.netchan, 0, NULL);	
+			CL_JumpPacketSent ();
+			CL_TimingTransmit (0, NULL, NULL);
 		}
 		return;
 	}
@@ -797,7 +854,8 @@ void CL_SendCmd_Synchronous (void)
 	//
 	// deliver the message
 	//
-	Netchan_Transmit (&cls.netchan, buf.cursize, buf.data);	
+	CL_JumpPacketSent ();
+	CL_TimingTransmit (buf.cursize, buf.data, cmd);
 }
 
 /*
@@ -821,7 +879,8 @@ void CL_SendCmd (void)
 		if (cls.netchan.got_reliable || cls.netchan.message.cursize	|| (unsigned)(curtime - cls.netchan.last_sent) > 100 ) {
 	 		//memset (&buf, 0, sizeof(buf));
 			//Com_DPrintf ("connected: flushing netchan (len=%d, %s)\n", cls.netchan.message.cursize, MakePrintable(cls.netchan.message.data));
-			Netchan_Transmit (&cls.netchan, 0, NULL);	
+			CL_JumpPacketSent ();
+			CL_TimingTransmit (0, NULL, NULL);
 		}
 		return;
 	}
@@ -904,9 +963,9 @@ void CL_SendCmd (void)
 	// deliver the message
 	//
 
-	Netchan_Transmit (&cls.netchan, buf.cursize, buf.data);	
+	CL_JumpPacketSent ();
+	CL_TimingTransmit (buf.cursize, buf.data, cmd);
 
 	CL_InitCmd(); //jec - init the next usercmd buffer.
 }
-
 

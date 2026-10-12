@@ -157,7 +157,7 @@ qboolean	CL_CheckOrDownloadFile (const char *filename)
 		}
 
 		//r1: verify we are giving the server a legal path
-		if (cls.downloadname[length-1] == '/')
+		if (!length || cls.downloadname[length - 1] == '/')
 		{
 			Com_Printf ("Refusing to download bad path (%s)\n", LOG_CLIENT, filename);
 			return true;
@@ -579,11 +579,14 @@ qboolean CL_ParseServerData (void)
 
 	if (cl.playernum == -1)
 	{	// playing a cinematic or showing a pic, not a level
-		//SCR_PlayCinematic (str);
-		// tell the server to advance to the next map / cinematic
+#ifdef CINEMATICS
+		SCR_PlayCinematic (str);
+#else
+		// Cinematics are disabled in this build; advance to the next map.
 		MSG_WriteByte (clc_stringcmd);
 		MSG_Print (va("nextserver %i\n", cl.servercount));
 		MSG_EndWriting (&cls.netchan.message);
+#endif
 	}
 	else
 	{
@@ -631,6 +634,12 @@ void CL_ParseZPacket (void)
 
 	if (compressed_len <= 0)
 		Com_Error (ERR_DROP, "CL_ParseZPacket: compressed_len <= 0");
+
+	if (compressed_len > (int)sizeof (buff_in))
+		Com_Error (ERR_DROP, "CL_ParseZPacket: compressed_len exceeds buffer");
+
+	if (compressed_len > net_message.cursize - net_message.readcount)
+		Com_Error (ERR_DROP, "CL_ParseZPacket: truncated compressed data");
 
 	MSG_ReadData (&net_message, buff_in, compressed_len);
 
@@ -1195,6 +1204,8 @@ void CL_ParsePrint (void)
 		if (CL_IgnoreMatch (s))
 			return;
 
+		CL_TranslateChat (s);
+
 		S_StartLocalSound ("misc/talk.wav");
 		if (cl_filterchat->intvalue)
 		{
@@ -1229,6 +1240,22 @@ void CL_ParsePrint (void)
 	}
 	
 	con.ormask = 0;
+}
+
+static void CL_ParseLayout (void)
+{
+	size_t length;
+	int c;
+
+	length = 0;
+	while ((c = MSG_ReadByte (&net_message)) != -1 && c != 0)
+	{
+		if (length < sizeof (cl.layout) - 1)
+			cl.layout[length++] = (char)c;
+	}
+	cl.layout[length] = 0;
+	if (c == -1)
+		Com_Error (ERR_DROP, "CL_ParseLayout: unterminated layout string");
 }
 
 /*
@@ -1312,9 +1339,8 @@ qboolean CL_ParseServerMessage (void)
 			break;
 
 		case svc_layout:
-			s = MSG_ReadString (&net_message);
+			CL_ParseLayout ();
 			CL_WriteDemoMessage (net_message.data + oldReadCount, net_message.readcount - oldReadCount, false);
-			strncpy (cl.layout, s, sizeof(cl.layout)-1);
 			break;
 
 		case svc_inventory:

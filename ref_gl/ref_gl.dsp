@@ -96,11 +96,28 @@ LINK32=link.exe
 # PROP Default_Filter "cpp;c;cxx;rc;def;r;odl;hpj;bat;for;f90"
 # Begin Source File
 
+SOURCE=.\gl_jump_beams.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_jump_lava.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_jump.c
+# End Source File
+
+# Begin Source File
+
 SOURCE=.\gl_draw.c
 # End Source File
 # Begin Source File
 
 SOURCE=.\gl_image.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_hqx.c
 # End Source File
 # Begin Source File
 
@@ -113,6 +130,26 @@ SOURCE=.\gl_mesh.c
 # Begin Source File
 
 SOURCE=.\gl_model.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_core.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_core_state.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_core_shader.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_shader.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_postfx.c
 # End Source File
 # Begin Source File
 
@@ -133,6 +170,9 @@ SOURCE=.\gl_warp.c
 # Begin Source File
 
 SOURCE=..\win32\glw_imp.c
+# End Source File
+# Begin Source File
+SOURCE=..\win32\glw_display.c
 # End Source File
 # Begin Source File
 
@@ -161,6 +201,14 @@ SOURCE=.\anormtab.h
 # Begin Source File
 
 SOURCE=.\gl_local.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_shader.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\gl_postfx.h
 # End Source File
 # Begin Source File
 

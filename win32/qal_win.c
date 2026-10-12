@@ -105,7 +105,11 @@ ALEAXGET					qalEAXGet;
 
 // =====================================================================
 
-#define GPA(a)			GetProcAddress(alwState.hInstOpenAL, a);
+#ifdef R1Q2_STATIC_OPENAL
+#define QAL_BIND(type, name)	q##name = name
+#else
+#define QAL_BIND(type, name)	q##name = (type)GetProcAddress(alwState.hInstOpenAL, #name)
+#endif
 
 
 /*
@@ -119,13 +123,15 @@ void QAL_Shutdown (void){
 
 	Com_Printf("...shutting down QAL\n", LOG_CLIENT);
 
+#ifndef R1Q2_STATIC_OPENAL
 	if (alwState.hInstOpenAL)
 	{
 		Com_Printf("...unloading OpenAL DLL\n", LOG_CLIENT);
 
 		FreeLibrary(alwState.hInstOpenAL);
-		alwState.hInstOpenAL = NULL;
 	}
+#endif
+	alwState.hInstOpenAL = NULL;
 
 	openal_active = false;
 
@@ -214,10 +220,16 @@ void QAL_Shutdown (void){
 */
 qboolean QAL_Init (const char *driver){
 
+#ifndef R1Q2_STATIC_OPENAL
 	char	name[MAX_OSPATH], path[MAX_OSPATH];
+#endif
 
 	Com_Printf("...initializing QAL\n", LOG_CLIENT);
 
+#ifdef R1Q2_STATIC_OPENAL
+	(void)driver;
+	Com_Printf ("...using built-in OpenAL\n", LOG_CLIENT);
+#else
 	Com_sprintf (name, sizeof(name), "%s.dll", driver);
 
 	if (!SearchPath(NULL, name, NULL, sizeof(path), path, NULL))
@@ -235,84 +247,100 @@ qboolean QAL_Init (const char *driver){
 	}
 	Com_Printf("succeeded\n", LOG_CLIENT);
 
-	qalcOpenDevice				= (ALCOPENDEVICE)GPA("alcOpenDevice");
-	qalcCloseDevice				= (ALCCLOSEDEVICE)GPA("alcCloseDevice");
-	qalcCreateContext			= (ALCCREATECONTEXT)GPA("alcCreateContext");
-	qalcDestroyContext			= (ALCDESTROYCONTEXT)GPA("alcDestroyContext");
-	qalcMakeContextCurrent		= (ALCMAKECONTEXTCURRENT)GPA("alcMakeContextCurrent");
-	qalcProcessContext			= (ALCPROCESSCONTEXT)GPA("alcProcessContext");
-	qalcSuspendContext			= (ALCSUSPENDCONTEXT)GPA("alcSuspendContext");
-	qalcGetCurrentContext		= (ALCGETCURRENTCONTEXT)GPA("alcGetCurrentContext");
-	qalcGetContextsDevice		= (ALCGETCONTEXTSDEVICE)GPA("alcGetContextsDevice");
-	qalcGetString				= (ALCGETSTRING)GPA("alcGetString");
-	qalcGetIntegerv				= (ALCGETINTEGERV)GPA("alcGetIntegerv");
-	qalcGetError				= (ALCGETERROR)GPA("alcGetError");
-	qalcIsExtensionPresent		= (ALCISEXTENSIONPRESENT)GPA("alcIsExtensionPresent");
-	qalcGetProcAddress			= (ALCGETPROCADDRESS)GPA("alcGetProcAddress");
-	qalcGetEnumValue			= (ALCGETENUMVALUE)GPA("alcGetEnumValue");
+#endif
 
-	qalBufferData				= (ALBUFFERDATA)GPA("alBufferData");
-	qalDeleteBuffers			= (ALDELETEBUFFERS)GPA("alDeleteBuffers");
-	qalDeleteSources			= (ALDELETESOURCES)GPA("alDeleteSources");
-	qalDisable					= (ALDISABLE)GPA("alDisable");
-	qalDistanceModel			= (ALDISTANCEMODEL)GPA("alDistanceModel");
-	qalDopplerFactor			= (ALDOPPLERFACTOR)GPA("alDopplerFactor");
-	qalDopplerVelocity			= (ALDOPPLERVELOCITY)GPA("alDopplerVelocity");
-	qalEnable					= (ALENABLE)GPA("alEnable");
-	qalGenBuffers				= (ALGENBUFFERS)GPA("alGenBuffers");
-	qalGenSources				= (ALGENSOURCES)GPA("alGenSources");
-	qalGetBoolean				= (ALGETBOOLEAN)GPA("alGetBoolean");
-	qalGetBooleanv				= (ALGETBOOLEANV)GPA("alGetBooleanv");
-	qalGetBufferf				= (ALGETBUFFERF)GPA("alGetBufferf");
-	qalGetBufferi				= (ALGETBUFFERI)GPA("alGetBufferi");
-	qalGetDouble				= (ALGETDOUBLE)GPA("alGetDouble");
-	qalGetDoublev				= (ALGETDOUBLEV)GPA("alGetDoublev");
-	qalGetEnumValue				= (ALGETENUMVALUE)GPA("alGetEnumValue");
-	qalGetError					= (ALGETERROR)GPA("alGetError");
-	qalGetFloat					= (ALGETFLOAT)GPA("alGetFloat");
-	qalGetFloatv				= (ALGETFLOATV)GPA("alGetFloatv");
-	qalGetInteger				= (ALGETINTEGER)GPA("alGetInteger");
-	qalGetIntegerv				= (ALGETINTEGERV)GPA("alGetIntegerv");
-	qalGetListener3f			= (ALGETLISTENER3F)GPA("alGetListener3f");
-	qalGetListenerf				= (ALGETLISTENERF)GPA("alGetListenerf");
-	qalGetListenerfv			= (ALGETLISTENERFV)GPA("alGetListenerfv");
-	qalGetListeneri				= (ALGETLISTENERI)GPA("alGetListeneri");
-	qalGetProcAddress			= (ALGETPROCADDRESS)GPA("alGetProcAddress");
-	qalGetSource3f				= (ALGETSOURCE3F)GPA("alGetSource3f");
-	qalGetSourcef				= (ALGETSOURCEF)GPA("alGetSourcef");
-	qalGetSourcefv				= (ALGETSOURCEFV)GPA("alGetSourcefv");
-	qalGetSourcei				= (ALGETSOURCEI)GPA("alGetSourcei");
-	qalGetString				= (ALGETSTRING)GPA("alGetString");
-	qalHint						= (ALHINT)GPA("alHint");
-	qalIsBuffer					= (ALISBUFFER)GPA("alIsBuffer");
-	qalIsEnabled				= (ALISENABLED)GPA("alIsEnabled");
-	qalIsExtensionPresent		= (ALISEXTENSIONPRESENT)GPA("alIsExtensionPresent");
-	qalIsSource					= (ALISSOURCE)GPA("alIsSource");
-	qalListener3f				= (ALLISTENER3F)GPA("alListener3f");
-	qalListenerf				= (ALLISTENERF)GPA("alListenerf");
-	qalListenerfv				= (ALLISTENERFV)GPA("alListenerfv");
-	qalListeneri				= (ALLISTENERI)GPA("alListeneri");
-	qalSource3f					= (ALSOURCE3F)GPA("alSource3f");
-	qalSourcef					= (ALSOURCEF)GPA("alSourcef");
-	qalSourcefv					= (ALSOURCEFV)GPA("alSourcefv");
-	qalSourcei					= (ALSOURCEI)GPA("alSourcei");
-	qalSourcePause				= (ALSOURCEPAUSE)GPA("alSourcePause");
-	qalSourcePausev				= (ALSOURCEPAUSEV)GPA("alSourcePausev");
-	qalSourcePlay				= (ALSOURCEPLAY)GPA("alSourcePlay");
-	qalSourcePlayv				= (ALSOURCEPLAYV)GPA("alSourcePlayv");
-	qalSourceQueueBuffers		= (ALSOURCEQUEUEBUFFERS)GPA("alSourceQueueBuffers");
-	qalSourceRewind				= (ALSOURCEREWIND)GPA("alSourceRewind");
-	qalSourceRewindv			= (ALSOURCEREWINDV)GPA("alSourceRewindv");
-	qalSourceStop				= (ALSOURCESTOP)GPA("alSourceStop");
-	qalSourceStopv				= (ALSOURCESTOPV)GPA("alSourceStopv");
-	qalSourceUnqueueBuffers		= (ALSOURCEUNQUEUEBUFFERS)GPA("alSourceUnqueueBuffers");
+	QAL_BIND (ALCOPENDEVICE, alcOpenDevice);
+	QAL_BIND (ALCCLOSEDEVICE, alcCloseDevice);
+	QAL_BIND (ALCCREATECONTEXT, alcCreateContext);
+	QAL_BIND (ALCDESTROYCONTEXT, alcDestroyContext);
+	QAL_BIND (ALCMAKECONTEXTCURRENT, alcMakeContextCurrent);
+	QAL_BIND (ALCPROCESSCONTEXT, alcProcessContext);
+	QAL_BIND (ALCSUSPENDCONTEXT, alcSuspendContext);
+	QAL_BIND (ALCGETCURRENTCONTEXT, alcGetCurrentContext);
+	QAL_BIND (ALCGETCONTEXTSDEVICE, alcGetContextsDevice);
+	QAL_BIND (ALCGETSTRING, alcGetString);
+	QAL_BIND (ALCGETINTEGERV, alcGetIntegerv);
+	QAL_BIND (ALCGETERROR, alcGetError);
+	QAL_BIND (ALCISEXTENSIONPRESENT, alcIsExtensionPresent);
+	QAL_BIND (ALCGETPROCADDRESS, alcGetProcAddress);
+	QAL_BIND (ALCGETENUMVALUE, alcGetEnumValue);
+
+	QAL_BIND (ALBUFFERDATA, alBufferData);
+	QAL_BIND (ALDELETEBUFFERS, alDeleteBuffers);
+	QAL_BIND (ALDELETESOURCES, alDeleteSources);
+	QAL_BIND (ALDISABLE, alDisable);
+	QAL_BIND (ALDISTANCEMODEL, alDistanceModel);
+	QAL_BIND (ALDOPPLERFACTOR, alDopplerFactor);
+	QAL_BIND (ALDOPPLERVELOCITY, alDopplerVelocity);
+	QAL_BIND (ALENABLE, alEnable);
+	QAL_BIND (ALGENBUFFERS, alGenBuffers);
+	QAL_BIND (ALGENSOURCES, alGenSources);
+	QAL_BIND (ALGETBOOLEAN, alGetBoolean);
+	QAL_BIND (ALGETBOOLEANV, alGetBooleanv);
+	QAL_BIND (ALGETBUFFERF, alGetBufferf);
+	QAL_BIND (ALGETBUFFERI, alGetBufferi);
+	QAL_BIND (ALGETDOUBLE, alGetDouble);
+	QAL_BIND (ALGETDOUBLEV, alGetDoublev);
+	QAL_BIND (ALGETENUMVALUE, alGetEnumValue);
+	QAL_BIND (ALGETERROR, alGetError);
+	QAL_BIND (ALGETFLOAT, alGetFloat);
+	QAL_BIND (ALGETFLOATV, alGetFloatv);
+	QAL_BIND (ALGETINTEGER, alGetInteger);
+	QAL_BIND (ALGETINTEGERV, alGetIntegerv);
+	QAL_BIND (ALGETLISTENER3F, alGetListener3f);
+	QAL_BIND (ALGETLISTENERF, alGetListenerf);
+	QAL_BIND (ALGETLISTENERFV, alGetListenerfv);
+	QAL_BIND (ALGETLISTENERI, alGetListeneri);
+	QAL_BIND (ALGETPROCADDRESS, alGetProcAddress);
+	QAL_BIND (ALGETSOURCE3F, alGetSource3f);
+	QAL_BIND (ALGETSOURCEF, alGetSourcef);
+	QAL_BIND (ALGETSOURCEFV, alGetSourcefv);
+	QAL_BIND (ALGETSOURCEI, alGetSourcei);
+	QAL_BIND (ALGETSTRING, alGetString);
+#ifndef R1Q2_STATIC_OPENAL
+	QAL_BIND (ALHINT, alHint);
+#else
+	qalHint = NULL;
+#endif
+	QAL_BIND (ALISBUFFER, alIsBuffer);
+	QAL_BIND (ALISENABLED, alIsEnabled);
+	QAL_BIND (ALISEXTENSIONPRESENT, alIsExtensionPresent);
+	QAL_BIND (ALISSOURCE, alIsSource);
+	QAL_BIND (ALLISTENER3F, alListener3f);
+	QAL_BIND (ALLISTENERF, alListenerf);
+	QAL_BIND (ALLISTENERFV, alListenerfv);
+	QAL_BIND (ALLISTENERI, alListeneri);
+	QAL_BIND (ALSOURCE3F, alSource3f);
+	QAL_BIND (ALSOURCEF, alSourcef);
+	QAL_BIND (ALSOURCEFV, alSourcefv);
+	QAL_BIND (ALSOURCEI, alSourcei);
+	QAL_BIND (ALSOURCEPAUSE, alSourcePause);
+	QAL_BIND (ALSOURCEPAUSEV, alSourcePausev);
+	QAL_BIND (ALSOURCEPLAY, alSourcePlay);
+	QAL_BIND (ALSOURCEPLAYV, alSourcePlayv);
+	QAL_BIND (ALSOURCEQUEUEBUFFERS, alSourceQueueBuffers);
+	QAL_BIND (ALSOURCEREWIND, alSourceRewind);
+	QAL_BIND (ALSOURCEREWINDV, alSourceRewindv);
+	QAL_BIND (ALSOURCESTOP, alSourceStop);
+	QAL_BIND (ALSOURCESTOPV, alSourceStopv);
+	QAL_BIND (ALSOURCEUNQUEUEBUFFERS, alSourceUnqueueBuffers);
 
 	qalEAXGet					= NULL;
 	qalEAXSet					= NULL;
 
-	if (!qalcIsExtensionPresent || !qalcOpenDevice || !qalcCloseDevice || !qalcCreateContext || !qalcDestroyContext)
+	/* These exports are called without optional-extension guards. */
+	if (!qalcOpenDevice || !qalcCloseDevice || !qalcCreateContext || !qalcDestroyContext ||
+		!qalcMakeContextCurrent || !qalcGetString || !qalcIsExtensionPresent ||
+		!qalBufferData || !qalDeleteBuffers || !qalDeleteSources || !qalDistanceModel ||
+		!qalDopplerFactor || !qalDopplerVelocity || !qalGenBuffers || !qalGenSources ||
+		!qalGetError || !qalGetProcAddress || !qalGetSourcei || !qalGetString ||
+		!qalIsExtensionPresent || !qalListenerf || !qalListenerfv || !qalSource3f ||
+		!qalSourcef || !qalSourcefv || !qalSourcei || !qalSourcePause || !qalSourcePlay ||
+		!qalSourceQueueBuffers || !qalSourceStop || !qalSourceUnqueueBuffers)
 	{
-		Com_Error (ERR_DROP, "Unsupported OpenAL driver '%s' (missing exports). Please check you have a current version of OpenAL installed.", driver);
+		Com_Printf ("Unsupported OpenAL driver '%s' (missing required exports).\n", LOG_CLIENT, driver);
+		QAL_Shutdown ();
+		return false;
 	}
 
 	openal_active = true;

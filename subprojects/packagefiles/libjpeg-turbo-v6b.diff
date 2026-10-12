@@ -1,0 +1,26 @@
+--- a/meson.build
++++ b/meson.build
+@@ -18,12 +18,12 @@
+ cdata.set('VERSION', meson.project_version())
+ cdata.set('COPYRIGHT_YEAR', '1991-2026')
+ 
+-jpeg_lib_version = 80
++jpeg_lib_version = 62
+ so_major = jpeg_lib_version / 10
+ so_age = 3
+ so_minor = 2
+ so_version = '@0@.@1@.@2@'.format(so_major, so_age, so_minor)
+-vs_defs = files('win/jpeg8.def')[0]
++vs_defs = files('win/jpeg62.def')[0]
+ 
+ version_arr = meson.project_version().split('.')
+ version_major = version_arr[0]
+@@ -134,7 +134,7 @@
+   cdata.set('INLINE', 'inline')
+ endif
+ 
+-if host_system == 'windows'
++if host_system == 'windows' and get_option('default_library') != 'static'
+   add_project_arguments(
+     '-DDLLDEFINE',
+     language: 'c',

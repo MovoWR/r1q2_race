@@ -1,0 +1,8 @@
+This project combines code from multiple projects:
+
+Q2pro is licensed under the GPL-2.0 license.
+
+Q2pro-jump is licensed under the GPL-2.0 license. Some of the modifications to q2pro made in this project are adapted from the q2pro-jump project.
+
+The imported strafe_helper component is licensed under MPL-2.0; its license text is in src/jump/LICENSE. Its source is now directly under src/jump/. That directory also contains additions with GPL provenance, including strafe_efficiency.c. This note does not assign one license to the entire directory; per-file attribution needs maintainer review.
+

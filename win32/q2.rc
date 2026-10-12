@@ -7,7 +7,11 @@
 //
 // Generated from the TEXTINCLUDE 2 resource.
 //
+#ifdef REF_HARD_LINKED
+#include <winres.h>
+#else
 #include "afxres.h"
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 #undef APSTUDIO_READONLY_SYMBOLS
@@ -110,12 +114,12 @@ BEGIN
         BEGIN
             VALUE "Comments", "http://www.r1ch.net/stuff/r1q2/"
             VALUE "CompanyName", "r1ch.net"
-            VALUE "FileDescription", "R1Q2 - Enhanced Quake II Client/Server"
+            VALUE "FileDescription", "r1q2_race - Quake II Jump Client"
             VALUE "FileVersion", "8, 0, 1, 2"
-            VALUE "InternalName", "r1q2"
+            VALUE "InternalName", "r1q2_race"
             VALUE "LegalCopyright", "Copyright (C) 2002-2008"
-            VALUE "OriginalFilename", "r1q2.exe"
-            VALUE "ProductName", "Quake II"
+            VALUE "OriginalFilename", "r1q2_race.exe"
+            VALUE "ProductName", "r1q2_race"
             VALUE "ProductVersion", "Release"
         END
     END

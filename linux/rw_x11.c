@@ -228,6 +228,21 @@ void RW_IN_Move (usercmd_t *cmd)
 	mx = my = 0;
 }
 
+/* Preview the collected sample without consuming motion or filter history. */
+void EXPORT RW_IN_PreviewMove (usercmd_t *cmd)
+{
+	int saved_mx = mx, saved_my = my;
+	int saved_x = mouse_x, saved_y = mouse_y;
+	int saved_old_x = old_mouse_x, saved_old_y = old_mouse_y;
+	RW_IN_Move (cmd);
+	mx = saved_mx;
+	my = saved_my;
+	mouse_x = saved_x;
+	mouse_y = saved_y;
+	old_mouse_x = saved_old_x;
+	old_mouse_y = saved_old_y;
+}
+
 void RW_IN_Frame (void)
 {
 }

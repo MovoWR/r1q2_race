@@ -20,6 +20,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl_view.c -- player rendering positioning
 
 #include "client.h"
+#include "snd_music.h"
+#include "cl_timing.h"
+#include "ref_present.h"
+#include "jump/jump_beams.h"
+#include "jump/jump_editor.h"
 #include "localent.h"
 
 extern int deferred_model_index;
@@ -51,9 +56,11 @@ cvar_t		*cl_drawmaptime_y;
 
 cvar_t		*cl_defermodels;
 cvar_t		*cl_particlecount;
+static cvar_t *cl_adjustfov;
 
 cvar_t		*scr_crosshair_x;
 cvar_t		*scr_crosshair_y;
+static cvar_t *ch_scale, *ch_health, *ch_red, *ch_green, *ch_blue, *ch_alpha, *ch_x, *ch_y;
 
 extern cvar_t		*scr_showturtle;
 
@@ -84,6 +91,7 @@ void V_ClearScene (void)
 	r_numdlights = 0;
 	r_numentities = 0;
 	r_numparticles = 0;
+	CL_JumpSceneClear ();
 }
 
 /*
@@ -97,6 +105,7 @@ void V_AddEntity (entity_t *ent)
 	if (r_numentities >= MAX_ENTITIES)
 		return;
 
+	CL_JumpSceneEntity (r_numentities);
 	r_entities[r_numentities++] = *ent;
 }
 
@@ -209,6 +218,7 @@ void V_TestEntities (void)
 	float		f, r;
 	entity_t	*ent;
 
+	CL_JumpSceneClear ();
 	r_numentities = 32;
 	memset (r_entities, 0, sizeof(r_entities));
 
@@ -312,7 +322,7 @@ void CL_PrepRefresh (void)
 
 	Sys_SendKeyEvents ();
 
-	Netchan_Transmit (&cls.netchan, 0, NULL);
+	CL_TimingTransmit (0, NULL, NULL);
 
 	// precache status bar pics
 	Com_Printf ("pics\r", LOG_CLIENT); 
@@ -341,7 +351,7 @@ void CL_PrepRefresh (void)
 		}
 	}
 
-	Netchan_Transmit (&cls.netchan, 0, NULL);
+	CL_TimingTransmit (0, NULL, NULL);
 
 	//modelindex 1 is always world.
 	//is 0 ever used?
@@ -416,7 +426,7 @@ void CL_PrepRefresh (void)
 		CL_ParseClientinfo (i);
 	}
 
-	Netchan_Transmit (&cls.netchan, 0, NULL);
+	CL_TimingTransmit (0, NULL, NULL);
 
 	CL_LoadClientinfo (&cl.baseclientinfo, "");
 
@@ -469,7 +479,8 @@ void CL_PrepRefresh (void)
 	//else
 		cl.defer_rendering = 0;
 
-	// start the cd track
+		S_MusicResume ();
+		// start the cd track
 #ifdef CD_AUDIO
 	CDAudio_Play (atoi(cl.configstrings[CS_CDTRACK]), true);
 #endif
@@ -505,6 +516,50 @@ float CalcFov (float fov_x, int width, int height)
 	}
 
 	return a;
+}
+
+/* Keep the 4:3 vertical view when drawing on a wider or taller viewport. */
+static void V_CalcFov (float fov, int width, int height, qboolean adjust,
+	float *fov_x, float *fov_y)
+{
+	static float last_fov, horizontal, vertical;
+	static int last_width, last_height;
+	static qboolean last_adjust;
+
+	if (!(fov >= 1 && fov <= 179) || width < 1 || width >= 0x10000 || height < 1 || height >= 0x10000)
+		Com_Error (ERR_DROP, "Bad view: fov %f, size %dx%d", fov, width, height);
+
+	if (fov != last_fov || width != last_width || height != last_height || adjust != last_adjust)
+	{
+		if (adjust)
+		{
+			float tangent;
+
+			tangent = (float)tan (fov * M_PI / 360) * 0.75f;
+			vertical = (float)(atan (tangent) * 360 / M_PI);
+			horizontal = width * 3 == height * 4 ? fov :
+												   (float)(atan (tangent * width / height) * 360 / M_PI);
+		}
+		else
+		{
+			horizontal = fov;
+			vertical = CalcFov (fov, width, height);
+		}
+
+		last_fov = fov;
+		last_width = width;
+		last_height = height;
+		last_adjust = adjust;
+	}
+
+	*fov_x = horizontal;
+	*fov_y = vertical;
+}
+
+static void V_AdjustFovChanged (cvar_t *self, char *old, char *newValue)
+{
+	self->modified = false;
+	cl.force_refdef = true;
 }
 
 //============================================================================
@@ -545,8 +600,36 @@ void V_Gun_Model_f (void)
 SCR_DrawCrosshair
 =================
 */
+static float V_CrosshairValue (cvar_t *var, float min, float max, float fallback)
+{
+	float value = var ? var->value : fallback;
+	if (value != value)
+		return fallback;
+	if (!(value >= min))
+		return min;
+	if (value > max)
+		return max;
+	return value;
+}
+
+static void V_CrosshairHealthColor (int health, float *rgba)
+{
+	if (health <= 0)
+	{
+		rgba[0] = rgba[1] = rgba[2] = 0;
+		return;
+	}
+	rgba[0] = 1;
+	rgba[1] = health < 33 ? 0 : health >= 66 ? 1 :
+											   (health - 33) / 33.0f;
+	rgba[2] = health < 66 ? 0 : health >= 99 ? 1 :
+											   (health - 66) / 33.0f;
+}
+
 __inline void SCR_DrawCrosshair (void)
 {
+	int x, y, width, height;
+	float scale, rgba[4];
 	if (!crosshair->intvalue)
 		return;
 
@@ -559,8 +642,30 @@ __inline void SCR_DrawCrosshair (void)
 	if (!crosshair_pic[0])
 		return;
 
-	re.DrawPic (scr_vrect.x + scr_crosshair_x->intvalue + ((scr_vrect.width - crosshair_width)>>1)
-	, scr_vrect.y + + scr_crosshair_y->intvalue + ((scr_vrect.height - crosshair_height)>>1), crosshair_pic);
+	if (!scr_presentation)
+	{
+		re.DrawPic (scr_vrect.x + scr_crosshair_x->intvalue + ((scr_vrect.width - crosshair_width) >> 1),
+			scr_vrect.y + scr_crosshair_y->intvalue + ((scr_vrect.height - crosshair_height) >> 1), crosshair_pic);
+		return;
+	}
+	scale = V_CrosshairValue (ch_scale, 0.1f, 9, 1);
+	width = (int)floor (crosshair_width * scale + 0.5f);
+	height = (int)floor (crosshair_height * scale + 0.5f);
+	if (width < 1)
+		width = 1;
+	if (height < 1)
+		height = 1;
+	x = scr_vrect.x + (scr_vrect.width - width) / 2 + scr_crosshair_x->intvalue +
+		(int)V_CrosshairValue (ch_x, -32767, 32767, 0);
+	y = scr_vrect.y + (scr_vrect.height - height) / 2 + scr_crosshair_y->intvalue +
+		(int)V_CrosshairValue (ch_y, -32767, 32767, 0);
+	rgba[0] = V_CrosshairValue (ch_red, 0, 1, 1);
+	rgba[1] = V_CrosshairValue (ch_green, 0, 1, 1);
+	rgba[2] = V_CrosshairValue (ch_blue, 0, 1, 1);
+	rgba[3] = V_CrosshairValue (ch_alpha, 0, 1, 1);
+	if (ch_health && ch_health->intvalue)
+		V_CrosshairHealthColor (cl.frame.playerstate.stats[STAT_HEALTH], rgba);
+	scr_presentation->DrawColorPic (x, y, width, height, crosshair_pic, rgba);
 }
 
 int spc = 0;
@@ -587,6 +692,8 @@ void V_RenderView( float stereo_separation )
 void V_RenderView(void)
 #endif
 {
+	present_scope_t hud_space;
+	refdef_t editor_view;
 	if (cls.state != ca_active)
 		return;
 
@@ -652,7 +759,8 @@ void V_RenderView(void)
 		cl.refdef.y = scr_vrect.y;
 		cl.refdef.width = scr_vrect.width;
 		cl.refdef.height = scr_vrect.height;
-		cl.refdef.fov_y = CalcFov (cl.refdef.fov_x, cl.refdef.width, cl.refdef.height);
+		V_CalcFov (cl.refdef.fov_x, cl.refdef.width, cl.refdef.height,
+			cl_adjustfov->intvalue != 0, &cl.refdef.fov_x, &cl.refdef.fov_y);
 		cl.refdef.time = cl.time * 0.001f;
 
 		cl.refdef.areabits = cl.frame.areabits;
@@ -665,7 +773,7 @@ void V_RenderView(void)
 			r_numdlights = 0;
 		if (!cl_add_blend->intvalue)
 		{
-			VectorClear (cl.refdef.blend);
+			memset (cl.refdef.blend, 0, sizeof (cl.refdef.blend));
 		}
 
 		if (cl.defer_rendering > cls.realtime)
@@ -682,11 +790,17 @@ void V_RenderView(void)
 		cl.refdef.rdflags = cl.frame.playerstate.rdflags;
 
 		// sort entities for better cache locality
-        qsort( cl.refdef.entities, cl.refdef.num_entities, sizeof( cl.refdef.entities[0] ), (int (EXPORT *)(const void *, const void *))entitycmpfnc );
+		CL_JumpSortScene (cl.refdef.entities, cl.refdef.num_entities);
 	}
 
 	if (!cl.force_refdef)
-		re.RenderFrame (&cl.refdef);
+	{
+		CL_JumpPublishScene (cl.refdef.entities, cl.refdef.num_entities);
+		if (CL_JumpEditorView (&cl.refdef, &editor_view))
+			re.RenderFrame (&editor_view);
+		else
+			re.RenderFrame (&cl.refdef);
+	}
 
 	if (cl_stats->intvalue)
 		Com_Printf ("ent:%i  lt:%i  part:%i\n", LOG_CLIENT, r_numentities, r_numdlights, r_numparticles);
@@ -701,6 +815,8 @@ void V_RenderView(void)
 		serverPacketCount = 0;
 		frames_seconds = curtime;
 	}
+
+	SCR_BeginPresentation (&hud_space, PRESENT_HUD);
 
 	if (cl_shownet->intvalue == -1)
 	{
@@ -722,7 +838,8 @@ void V_RenderView(void)
 
 		if (cl_drawfps->intvalue == 2)
 		{
-			fps = (int)(1.0f / cls.frametime);
+			float frame_time = CL_CommandFrameTime ();
+			fps = frame_time > 0 ? (int)(1.0f / frame_time) : 0;
 		}
 
 		len = Com_sprintf (buff, sizeof(buff), "%d", fps);
@@ -751,6 +868,7 @@ void V_RenderView(void)
 	if (scr_showturtle->intvalue && !scr_draw_loading && cls.state == ca_active)
 	{
 		frame_t *old;
+		CL_JumpLayoutNativeBegin (HL_TURTLE);
 
 		if (cl.surpressCount)
 		{
@@ -782,13 +900,16 @@ void V_RenderView(void)
 			for (x=0 ; x<sizeof(overflowMsg)-1; x++)
 				re.DrawChar (1+(x*8), 298, 128 + overflowMsg[x] );
 		}
+		CL_JumpLayoutNativeEnd ();
 	}
 
 	SCR_AddDirtyPoint (scr_vrect.x, scr_vrect.y);
 	SCR_AddDirtyPoint (scr_vrect.x+scr_vrect.width-1,
 		scr_vrect.y+scr_vrect.height-1);
 
-	SCR_DrawCrosshair ();
+	if (!HUD_EditorActive ())
+		SCR_DrawCrosshair ();
+	SCR_EndPresentation (&hud_space);
 }
 
 
@@ -868,6 +989,8 @@ void V_Init (void)
 
 	crosshair = Cvar_Get ("crosshair", "0", CVAR_ARCHIVE);
 	crosshair->changed = OnCrossHairChange;
+	cl_adjustfov = Cvar_Get ("cl_adjustfov", "1", CVAR_ARCHIVE);
+	cl_adjustfov->changed = V_AdjustFovChanged;
 
 	cl_particlecount = Cvar_Get ("cl_particlecount", "16384", 0);
 	cl_particlecount->changed = _particlecount_changed;
@@ -892,4 +1015,12 @@ void V_Init (void)
 
 	scr_crosshair_x = Cvar_Get ("scr_crosshair_x", "0", 0);
 	scr_crosshair_y = Cvar_Get ("scr_crosshair_y", "0", 0);
+	ch_scale = Cvar_Get ("ch_scale", "1", CVAR_ARCHIVE);
+	ch_health = Cvar_Get ("ch_health", "0", CVAR_ARCHIVE);
+	ch_red = Cvar_Get ("ch_red", "1", CVAR_ARCHIVE);
+	ch_green = Cvar_Get ("ch_green", "1", CVAR_ARCHIVE);
+	ch_blue = Cvar_Get ("ch_blue", "1", CVAR_ARCHIVE);
+	ch_alpha = Cvar_Get ("ch_alpha", "1", CVAR_ARCHIVE);
+	ch_x = Cvar_Get ("ch_x", "0", CVAR_ARCHIVE);
+	ch_y = Cvar_Get ("ch_y", "0", CVAR_ARCHIVE);
 }

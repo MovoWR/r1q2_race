@@ -2319,6 +2319,12 @@ void Qcommon_Init (int argc, char **argv)
 	Cbuf_AddEarlyCommands (false);
 	Cbuf_Execute ();
 
+#ifndef DEDICATED_ONLY
+	/* Explicit early +set values take precedence over the racing client default. */
+	if (!Cvar_VariableValue ("dedicated"))
+		Cvar_Get ("game", "jump", 0);
+#endif
+
 	FS_InitFilesystem ();
 
 	Cbuf_AddText ("exec default.cfg\n");
@@ -2382,10 +2388,11 @@ void Qcommon_Init (int argc, char **argv)
 	SV_Init ();
 #endif
 
-	Com_Printf ("====== Quake2 Initialized ======\n", LOG_GENERAL);	
-	Com_Printf ("R1Q2 build " BUILD ", compiled " __DATE__ ".\n"
-				"http://www.r1ch.net/stuff/r1q2/\n"
-				BUILDSTRING " " CPUSTRING " (%s)\n\n", LOG_GENERAL, binary_name);
+	Com_Printf ("====== Quake2 Initialized ======\n", LOG_GENERAL);
+	Com_Printf ("%s build " BUILD ", compiled " __DATE__ ".\n"
+				"http://www.r1ch.net/stuff/r1q2/\n" BUILDSTRING " " CPUSTRING " (%s)\n\n",
+		LOG_GENERAL,
+		dedicated->intvalue ? "R1Q2" : R1Q2_CLIENT_NAME, binary_name);
 
 #ifndef DEDICATED_ONLY
 	CL_Init ();
@@ -2404,12 +2411,13 @@ void Qcommon_Init (int argc, char **argv)
 			Cbuf_AddText ("toggleconsole\n");
 
 			Com_Printf (
-				"Welcome to R1Q2.\n"
+				"Welcome to " R1Q2_CLIENT_NAME ".\n"
 				"\n"
 				"  Press <ESC> to open the menu.\n"
 				"  Type connect <host> to connect to a server.\n"
 				"  View the readme at http://www.r1ch.net/forum/index.php?board=8.0\n"
-				"\n", LOG_GENERAL);
+				"\n",
+				LOG_GENERAL);
 
 			Sys_UpdateURLMenu ("http://www.r1ch.net/forum/index.php?board=8.0");
 #endif

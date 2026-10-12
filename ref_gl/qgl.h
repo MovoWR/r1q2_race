@@ -409,6 +409,14 @@ extern	void (APIENTRY *qglGetQueryObjectuivARB) (GLuint, GLenum, GLuint *);
 extern	void ( APIENTRY * qglActiveTextureARB)( GLenum );
 extern	void ( APIENTRY * qglClientActiveTextureARB)( GLenum );
 
+extern void (APIENTRY *qglGenBuffers) (GLsizei, GLuint *);
+extern void (APIENTRY *qglDeleteBuffers) (GLsizei, const GLuint *);
+extern void (APIENTRY *qglBindBuffer) (GLenum, GLuint);
+extern void (APIENTRY *qglBufferData) (GLenum, GLsizeiptr, const GLvoid *, GLenum);
+extern void (APIENTRY *qglBufferSubData) (GLenum, GLintptr, GLsizeiptr, const GLvoid *);
+extern void (APIENTRY *qglGetBufferParameteriv) (GLenum, GLenum, GLint *);
+
+
 #ifdef _WIN32
 
 extern  int   ( WINAPI * qwglChoosePixelFormat )(HDC, CONST PIXELFORMATDESCRIPTOR *);

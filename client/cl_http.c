@@ -26,7 +26,7 @@ cvar_t	*cl_http_filelists;
 cvar_t	*cl_http_proxy;
 cvar_t	*cl_http_max_connections;
 
-static enum
+enum
 {
 	HTTPDL_ABORT_NONE,
 	HTTPDL_ABORT_SOFT,
@@ -260,7 +260,7 @@ static void CL_StartHTTPDownload (dlqueue_t *entry, dlhandle_t *dl)
 		Com_sprintf (dl->filePath, sizeof(dl->filePath), "%s/%s", FS_Gamedir(), entry->quakePath);
 
 		Com_sprintf (tempFile, sizeof(tempFile), "%s/%s", cl.gamedir, entry->quakePath);
-		CL_EscapeHTTPPath (dl->filePath, escapedFilePath);
+		CL_EscapeHTTPPath (tempFile, escapedFilePath);
 
 		strcat (dl->filePath, ".tmp");
 
@@ -271,12 +271,12 @@ static void CL_StartHTTPDownload (dlqueue_t *entry, dlhandle_t *dl)
 		if (!dl->file)
 		{
 			Com_Printf ("CL_StartHTTPDownload: Couldn't open %s for writing.\n", LOG_CLIENT | LOG_WARNING, dl->filePath);
-			entry->state = DLQ_STATE_DONE;
-			//CL_RemoveHTTPDownload (entry->quakePath);
-			return;
+			goto failed;
 		}
 	}
 
+	if (dl->tempBuffer)
+		Z_Free (dl->tempBuffer);
 	dl->tempBuffer = NULL;
 	dl->speed = 0;
 	dl->fileSize = 0;
@@ -285,6 +285,11 @@ static void CL_StartHTTPDownload (dlqueue_t *entry, dlhandle_t *dl)
 
 	if (!dl->curl)
 		dl->curl = curl_easy_init ();
+	if (!dl->curl)
+	{
+		Com_Printf ("CL_StartHTTPDownload: Couldn't create download handle.\n", LOG_CLIENT | LOG_WARNING);
+		goto failed;
+	}
 
 	Com_sprintf (dl->URL, sizeof(dl->URL), "%s%s", cls.downloadServer, escapedFilePath);
 
@@ -316,14 +321,27 @@ static void CL_StartHTTPDownload (dlqueue_t *entry, dlhandle_t *dl)
 	if (curl_multi_add_handle (multi, dl->curl) != CURLM_OK)
 	{
 		Com_Printf ("curl_multi_add_handle: error\n", LOG_ERROR|LOG_CLIENT);
-		dl->queueEntry->state = DLQ_STATE_DONE;
-		return;
+		goto failed;
 	}
 
 	handleCount++;
 	//Com_Printf ("started dl: hc = %d\n", LOG_GENERAL, handleCount);
 	Com_DPrintf  ("CL_StartHTTPDownload: Fetching %s...\n", dl->URL);
 	dl->queueEntry->state = DLQ_STATE_RUNNING;
+	return;
+
+failed:
+	if (dl->file)
+	{
+		fclose (dl->file);
+		remove (dl->filePath);
+		dl->file = NULL;
+	}
+	entry->state = DLQ_STATE_DONE;
+	if (pendingCount)
+		pendingCount--;
+	if (cls.state == ca_connected && !pendingCount && !handleCount)
+		CL_RequestNextDownload ();
 }
 
 /*
@@ -335,7 +353,7 @@ Init libcurl and multi handle.
 */
 void CL_InitHTTPDownloads (void)
 {
-	curl_global_init (CURL_GLOBAL_NOTHING);
+	curl_global_init (CURL_GLOBAL_DEFAULT);
 	//Com_Printf ("%s initialized.\n", LOG_CLIENT, curl_version());
 }
 
@@ -378,6 +396,7 @@ void CL_SetHTTPServer (const char *URL)
 
 	abortDownloads = HTTPDL_ABORT_NONE;
 	handleCount = pendingCount = 0;
+	downloading_pak = false;
 
 	strncpy (cls.downloadServer, URL, sizeof(cls.downloadServer)-1);
 }
@@ -665,8 +684,14 @@ static void CL_ParseFileList (dlhandle_t *dl)
 	char	 *list;
 	char	*p;
 
-	if (!cl_http_filelists->intvalue)
+	if (!dl->tempBuffer)
 		return;
+	if (!cl_http_filelists->intvalue)
+	{
+		Z_Free (dl->tempBuffer);
+		dl->tempBuffer = NULL;
+		return;
+	}
 
 	list = dl->tempBuffer;
 
@@ -1020,7 +1045,7 @@ static void CL_StartNextHTTPDownload (void)
 
 			//ugly hack for pak file single downloading
 			len = strlen (q->quakePath);
-			if (len > 4 && !Q_stricmp (q->quakePath + len - 4, ".pak"))
+			if (q->state == DLQ_STATE_RUNNING && len > 4 && !Q_stricmp (q->quakePath + len - 4, ".pak"))
 				downloading_pak = true;
 
 			break;

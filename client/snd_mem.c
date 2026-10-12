@@ -21,6 +21,197 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "client.h"
 #include "snd_loc.h"
+#include "snd_ogg.h"
+#include <limits.h>
+
+#define MAX_WAV_SAMPLES ((1 << 23) - 1)
+
+static unsigned S_WavU16 (const byte *p)
+{
+	return (unsigned)p[0] | ((unsigned)p[1] << 8);
+}
+
+static uint32 S_WavU32 (const byte *p)
+{
+	return (uint32)p[0] | ((uint32)p[1] << 8) |
+		((uint32)p[2] << 16) | ((uint32)p[3] << 24);
+}
+
+static qboolean S_ParseWAV (const char *name, const byte *wav, int wavlength,
+	wavinfo_t *info)
+{
+	const byte *fmt = NULL, *data = NULL, *cue = NULL, *list = NULL;
+	size_t end, pos, fmtlen = 0, datalen = 0, cuelen = 0, listlen = 0;
+	unsigned channels, rate, width, align;
+	uint32 riffsize;
+	const char *error = "invalid RIFF/WAVE header";
+
+	memset (info, 0, sizeof (*info));
+	info->loopstart = -1;
+	if (!wav || wavlength < 12 || memcmp (wav, "RIFF", 4) ||
+		memcmp (wav + 8, "WAVE", 4))
+		goto invalid;
+
+	riffsize = S_WavU32 (wav + 4);
+	if (riffsize < 4)
+		goto invalid;
+	/* Old sound packs can overstate RIFF/data lengths. Never read beyond the
+	 * actual file; Q2PRO likewise bounds PCM by the bytes available. */
+	end = riffsize > (uint32)(wavlength - 8) ? (size_t)wavlength : 8 + (size_t)riffsize;
+
+	for (pos = 12; pos < end;)
+	{
+		size_t size, payload, next;
+		if (end - pos < 8)
+		{
+			error = "truncated WAV chunk header";
+			goto invalid;
+		}
+		size = S_WavU32 (wav + pos + 4);
+		payload = pos + 8;
+		if (size > end - payload)
+		{
+			/* Only a terminal PCM payload may be shortened. Format and
+			 * metadata chunks must remain structurally complete. */
+			if (memcmp (wav + pos, "data", 4))
+			{
+				error = "WAV chunk exceeds RIFF bounds";
+				goto invalid;
+			}
+			size = end - payload;
+		}
+		next = payload + size;
+		if ((size & 1) && next < end)
+			next++;
+		if (!fmt && !memcmp (wav + pos, "fmt ", 4))
+		{
+			fmt = wav + payload;
+			fmtlen = size;
+		}
+		else if (!data && !memcmp (wav + pos, "data", 4))
+		{
+			data = wav + payload;
+			datalen = size;
+		}
+		else if (!cue && !memcmp (wav + pos, "cue ", 4))
+		{
+			cue = wav + payload;
+			cuelen = size;
+		}
+		else if (cue && !list && !memcmp (wav + pos, "LIST", 4))
+		{
+			list = wav + payload;
+			listlen = size;
+		}
+		pos = next;
+	}
+
+	error = "missing or short PCM fmt chunk";
+	if (!fmt || fmtlen < 16)
+		goto invalid;
+	error = "unsupported WAV format";
+	if (S_WavU16 (fmt) != 1)
+		goto invalid;
+	channels = S_WavU16 (fmt + 2);
+	rate = S_WavU32 (fmt + 4);
+	width = S_WavU16 (fmt + 14);
+	if (channels < 1 || channels > 2 || rate < 6000 || rate > 48000 ||
+		(width != 8 && width != 16 && width != 24))
+		goto invalid;
+	width /= 8;
+	align = channels * width;
+
+	/* Discard an incomplete final sample frame, as Q2PRO does. */
+	datalen -= datalen % align;
+	error = "missing WAV data frames";
+	if (!data || !datalen)
+		goto invalid;
+	if (datalen / align > MAX_WAV_SAMPLES)
+	{
+		error = "too many WAV sample frames";
+		goto invalid;
+	}
+	info->rate = rate;
+	info->width = width;
+	info->channels = channels;
+	info->samples = (int)(datalen / align);
+	info->dataofs = (int)(data - wav);
+
+	if (cue && cuelen >= 28 && S_WavU32 (cue) > 0)
+	{
+		uint32 start = S_WavU32 (cue + 24);
+		if (start < (uint32)info->samples)
+		{
+			info->loopstart = (int)start;
+			if (list && listlen >= 24 && !memcmp (list + 20, "mark", 4))
+			{
+				uint32 length = S_WavU32 (list + 16);
+				if (length && length <= (uint32)info->samples - start)
+					info->samples = (int)(start + length);
+			}
+		}
+	}
+	return true;
+
+invalid:
+	Com_Printf ("WAV %s: %s\n", LOG_CLIENT | LOG_WARNING,
+		name ? name : "<memory>", error);
+	memset (info, 0, sizeof (*info));
+	info->loopstart = -1;
+	return false;
+}
+
+/* WAV samples stay in the FS buffer; Vorbis samples belong to ogg until
+ * S_FreeOgg. Both paths expose little-endian PCM to the retained resampler. */
+static qboolean S_ParseSound (const char *name, const byte *data, int length,
+	wavinfo_t *info, snd_ogg_t *ogg)
+{
+	char error[128];
+	if (!S_IsOggSound (name, data, length))
+		return S_ParseWAV (name, data, length, info);
+	memset (info, 0, sizeof (*info));
+	info->loopstart = -1;
+	if (!S_DecodeOgg (data, length, ogg, error, sizeof (error)))
+	{
+		Com_Printf ("Vorbis %s: %s\n", LOG_CLIENT | LOG_WARNING, name, error);
+		return false;
+	}
+	info->rate = ogg->rate;
+	info->width = 2;
+	info->channels = ogg->channels;
+	info->samples = ogg->frames;
+	return true;
+}
+
+static byte *S_CopyWAVSamples (const byte *data, int samples, int channels,
+	int width, int *outwidth)
+{
+	size_t count = (size_t)samples * channels;
+	size_t bytes = count * (width == 3 ? 2 : width);
+	byte *out;
+	size_t i;
+
+	if (!count || bytes > INT_MAX)
+		return NULL;
+	out = Z_TagMalloc ((int)bytes, TAGMALLOC_CLIENT_SOUNDCACHE);
+	if (!out)
+		return NULL;
+	if (width == 3)
+	{
+		for (i = 0; i < count; i++)
+		{
+			out[i * 2] = data[i * 3 + 1];
+			out[i * 2 + 1] = data[i * 3 + 2];
+		}
+		*outwidth = 2;
+	}
+	else
+	{
+		memcpy (out, data, bytes);
+		*outwidth = width;
+	}
+	return out;
+}
 
 //int			cache_full_cycle;
 
@@ -34,6 +225,7 @@ ResampleSfx
 void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
 {
 	int		outcount;
+	int inframes;
 	int		srcsample;
 	float	stepscale;
 	int		i;
@@ -44,6 +236,7 @@ void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
 	sc = sfx->cache;
 	if (!sc)
 		return;
+	inframes = sc->length;
 
 	stepscale = (float)inrate / dma.speed;	// this is usually 0.5, 1, or 2
 
@@ -62,7 +255,10 @@ void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
 	sc->length = outcount;
 
 	if (sc->loopstart != -1)
-		sc->loopstart = (int)(sc->loopstart / stepscale);
+	{
+		int loop = (int)(sc->loopstart / stepscale);
+		sc->loopstart = loop < outcount ? loop : -1;
+	}
 
 	sc->speed = dma.speed;
 	if (s_loadas8bit->intvalue)
@@ -92,13 +288,72 @@ void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
 			srcsample = samplefrac >> 8;
 			samplefrac += fracstep;
 			if (inwidth == 2)
-				sample = LittleShort ( ((int16 *)data)[srcsample] );
+			{
+				if (srcsample >= inframes)
+					srcsample = inframes - 1;
+				sample = S_WavU16 (data + srcsample * 2);
+				if (sample >= 32768)
+					sample -= 65536;
+			}
 			else
-				sample = (int32)( (unsigned char)(data[srcsample]) - 128) << 8;
+			{
+				if (srcsample >= inframes)
+					srcsample = inframes - 1;
+				sample = ((int)data[srcsample] - 128) * 256;
+			}
 			if (sc->width == 2)
 				((int16 *)sc->data)[i] = sample;
 			else
-				((signed char *)sc->data)[i] = sample >> 8;
+				((signed char *)sc->data)[i] = sample >= 0 ?
+					sample / 256 :
+					-((255 - sample) / 256);
+		}
+	}
+}
+
+static void S_ResampleStereoSfx (sfx_t *sfx, int inrate, int inwidth,
+	const byte *data)
+{
+	sfxcache_t *sc = sfx->cache;
+	int inframes = sc->length;
+	float stepscale = (float)inrate / dma.speed;
+	int outcount = (int)(inframes / stepscale);
+	uint64 samplefrac = 0;
+	uint64 fracstep = (uint32)(stepscale * 256);
+	int i, channel;
+
+	sc->length = outcount;
+	if (sc->loopstart != -1)
+	{
+		int loop = (int)(sc->loopstart / stepscale);
+		sc->loopstart = loop < outcount ? loop : -1;
+	}
+	sc->speed = dma.speed;
+	sc->width = s_loadas8bit->intvalue ? 1 : inwidth;
+	sc->stereo = 1;
+	for (i = 0; i < outcount; i++, samplefrac += fracstep)
+	{
+		int source = (int)(samplefrac >> 8);
+		if (source >= inframes)
+			source = inframes - 1;
+		for (channel = 0; channel < 2; channel++)
+		{
+			int index = source * 2 + channel;
+			int sample;
+			if (inwidth == 2)
+			{
+				sample = S_WavU16 (data + index * 2);
+				if (sample >= 32768)
+					sample -= 65536;
+			}
+			else
+				sample = ((int)data[index] - 128) * 256;
+			if (sc->width == 2)
+				((int16 *)sc->data)[i * 2 + channel] = (int16)sample;
+			else
+				((signed char *)sc->data)[i * 2 + channel] =
+					(signed char)(sample >= 0 ? sample / 256 :
+												-((255 - sample) / 256));
 		}
 	}
 }
@@ -107,7 +362,7 @@ void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
 
 #ifdef USE_OPENAL
 
-static void S_OpenAL_UploadSound (byte *data, int width, int channels, sfx_t *sfx)
+static qboolean S_OpenAL_UploadSound (byte *data, int width, int channels, sfx_t *sfx)
 {
 	int		size;
 
@@ -131,8 +386,35 @@ static void S_OpenAL_UploadSound (byte *data, int width, int channels, sfx_t *sf
 	}
 
 	// Upload the sound
+	qalGetError ();
 	qalGenBuffers(1, &sfx->bufferNum);
+	if (qalGetError () != AL_NO_ERROR)
+		goto failed;
 	qalBufferData(sfx->bufferNum, sfx->format, data, size, sfx->rate);
+	if (qalGetError () != AL_NO_ERROR)
+		goto failed;
+	if (sfx->loopstart > 0 && alConfig.bufferiv)
+	{
+		ALint points[2];
+		points[0] = sfx->loopstart;
+		points[1] = sfx->samples;
+		alConfig.bufferiv (sfx->bufferNum, AL_LOOP_POINTS_SOFT, points);
+		if (qalGetError () != AL_NO_ERROR)
+		{
+			alConfig.bufferiv = NULL;
+			Com_Printf ("OpenAL loop points unavailable; looping whole buffers.\n",
+				LOG_CLIENT | LOG_WARNING);
+		}
+	}
+	return true;
+
+failed:
+	if (sfx->bufferNum)
+		qalDeleteBuffers (1, &sfx->bufferNum);
+	sfx->bufferNum = 0;
+	qalGetError ();
+	Com_Printf ("OpenAL sound upload failed: %s\n", LOG_CLIENT | LOG_WARNING, sfx->name);
+	return false;
 }
 
 static qboolean S_OpenAL_LoadWAV (const char *name, byte **wav, wavInfo_t *info);
@@ -163,15 +445,15 @@ qboolean S_OpenAL_LoadSound (sfx_t *sfx)
 	}
 
 	// Load it in
-	sfx->loaded = true;
 	sfx->samples = info.samples;
 	sfx->rate = info.rate;
+	sfx->loopstart = info.loopstart;
 
-	S_OpenAL_UploadSound(data, info.width, info.channels, sfx);
+	sfx->loaded = S_OpenAL_UploadSound (data, info.width, info.channels, sfx);
 
 	Z_Free(data);
 
-	return true;
+	return sfx->loaded;
 }
 
 #endif
@@ -185,10 +467,15 @@ sfxcache_t *S_LoadSound (sfx_t *s)
 {
     char	namebuffer[MAX_QPATH];
 	byte	*data;
+	byte *converted = NULL;
+	const byte *pcm;
 	wavinfo_t	info;
-	int		len;
+	snd_ogg_t ogg = { 0 };
+	int outcount, outwidth, pcmwidth;
 	float	stepscale;
-	sfxcache_t	*sc;
+	double frames;
+	size_t cachebytes;
+	sfxcache_t *sc = NULL;
 	int		size;
 	char	*name;
 
@@ -223,51 +510,64 @@ sfxcache_t *S_LoadSound (sfx_t *s)
 		return NULL;
 	}
 
-	//if (!openal_active)
+	if (!S_ParseSound (namebuffer, data, size, &info, &ogg))
+		goto done;
+	pcm = ogg.data ? ogg.data : data + info.dataofs;
+	pcmwidth = info.width;
+	if (pcmwidth == 3)
 	{
-
-		info = GetWavinfo (s->name, data, size);
-		if (info.channels != 1)
+		converted = S_CopyWAVSamples (pcm, info.samples, info.channels,
+			pcmwidth, &pcmwidth);
+		if (!converted)
 		{
-			Com_DPrintf ("%s is an unsupported stereo sample\n", s->name);
-			FS_FreeFile (data);
-			return NULL;
+			Com_Printf ("WAV %s: could not convert 24-bit samples\n",
+				LOG_CLIENT | LOG_WARNING, s->name);
+			goto done;
 		}
-
-		stepscale = (float)info.rate / dma.speed;	
-		len = (int)(info.samples / stepscale);
-
-		if (info.samples == 0 || len == 0)
-		{
-			Com_DPrintf ("WARNING: Zero length sound encountered: %s\n", s->name);
-			FS_FreeFile (data);
-			return NULL;
-		}
-
-		len = len * info.width * info.channels;
-		sc = s->cache = Z_TagMalloc (len + sizeof(sfxcache_t), TAGMALLOC_CLIENT_SOUNDCACHE);
+		pcm = converted;
 	}
-	//else
-	//{
-	//	sc = s->cache = Z_TagMalloc (sizeof(sfxcache_t), TAGMALLOC_CLIENT_SOUNDCACHE);
-	//}
-	
+	if (dma.speed <= 0)
+		goto done;
+	stepscale = (float)info.rate / dma.speed;
+	frames = (double)info.samples / stepscale;
+	if (frames < 1 || frames >= (double)INT_MAX - 256)
+	{
+		Com_Printf ("WAV %s: invalid resampled length\n",
+			LOG_CLIENT | LOG_WARNING, s->name);
+		goto done;
+	}
+	outcount = (int)(info.samples / stepscale);
+	if (!outcount)
+		goto done;
+	outwidth = s_loadas8bit->intvalue ? 1 : pcmwidth;
+	if ((size_t)outcount > (INT_MAX - sizeof (sfxcache_t)) /
+			((size_t)info.channels * outwidth))
+	{
+		Com_Printf ("WAV %s: resampled cache is too large\n",
+			LOG_CLIENT | LOG_WARNING, s->name);
+		goto done;
+	}
+	cachebytes = (size_t)outcount * info.channels * outwidth;
+	sc = s->cache = Z_TagMalloc ((int)(cachebytes + sizeof (sfxcache_t)),
+		TAGMALLOC_CLIENT_SOUNDCACHE);
 	if (!sc)
-	{
-		FS_FreeFile (data);
-		return NULL;
-	}
-
+		goto done;
 	sc->length = info.samples;
 	sc->loopstart = info.loopstart;
 	sc->speed = info.rate;
-	sc->width = info.width;
-	sc->stereo = info.channels;
+	sc->width = pcmwidth;
+	sc->stereo = info.channels - 1;
+	if (info.channels == 2)
+		S_ResampleStereoSfx (s, sc->speed, sc->width, pcm);
+	else
+		ResampleSfx (s, sc->speed, sc->width, (byte *)pcm);
+	sc = s->cache;
 
-	ResampleSfx (s, sc->speed, sc->width, data + info.dataofs);
-
+done:
+	if (converted)
+		Z_Free (converted);
+	S_FreeOgg (&ogg);
 	FS_FreeFile (data);
-
 	return sc;
 }
 
@@ -282,278 +582,63 @@ WAV loading
 */
 
 
-byte	*data_p;
-byte 	*iff_end;
-byte 	*last_chunk;
-byte 	*iff_data;
-int 	iff_chunk_len;
-
-
-int16 GetLittleShort(void)
-{
-	int16 val = 0;
-	val = *data_p;
-	val = val + (*(data_p+1)<<8);
-	data_p += 2;
-	return val;
-}
-
-int32 GetLittleLong(void)
-{
-	int32 val = 0;
-	val = *data_p;
-	val = val + (*(data_p+1)<<8);
-	val = val + (*(data_p+2)<<16);
-	val = val + (*(data_p+3)<<24);
-	data_p += 4;
-	return val;
-}
-
-void FindNextChunk(char *name)
-{
-	for (;;)
-	{
-		data_p = last_chunk;
-
-		/*if (data_p >= iff_end)
-		{	// didn't find the chunk
-			data_p = NULL;
-			return;
-		}*/
-		
-		data_p += 4;
-
-		//r1: fix
-		if (data_p >= iff_end)
-		{
-			data_p = NULL;
-			return;
-		}
-
-		iff_chunk_len = GetLittleLong();
-		if (iff_chunk_len < 0)
-		{
-			data_p = NULL;
-			return;
-		}
-//		if (iff_chunk_len > 1024*1024)
-//			Sys_Error ("FindNextChunk: %i length is past the 1 meg sanity limit", iff_chunk_len);
-		data_p -= 8;
-		last_chunk = data_p + 8 + ( (iff_chunk_len + 1) & ~1 );
-		if (!strncmp((const char *)data_p, name, 4))
-			return;
-	}
-}
-
-void FindChunk(char *name)
-{
-	last_chunk = iff_data;
-	FindNextChunk (name);
-}
-
-
-void DumpChunks(void)
-{
-	char	str[5];
-	
-	str[4] = 0;
-	data_p=iff_data;
-	do
-	{
-		memcpy (str, data_p, 4);
-		data_p += 4;
-		iff_chunk_len = GetLittleLong();
-		Com_Printf ("%p : %s (%d)\n", LOG_CLIENT, data_p - 4, str, iff_chunk_len);
-		data_p += (iff_chunk_len + 1) & ~1;
-	} while (data_p < iff_end);
-}
-
 #ifdef USE_OPENAL
 static qboolean S_OpenAL_LoadWAV (const char *name, byte **wav, wavInfo_t *info)
 {
-	byte	*buffer, *out;
-	int		length;
+	byte *buffer, *out;
+	wavinfo_t parsed;
+	snd_ogg_t ogg = { 0 };
+	int length, width;
+	qboolean success = false;
+	const byte *pcm;
 
-	length = FS_LoadFile(name, (void **)&buffer);
+	*wav = NULL;
+	memset (info, 0, sizeof (*info));
+	length = FS_LoadFile (name, (void **)&buffer);
 	if (!buffer)
 		return false;
-
-	iff_data = buffer;
-	iff_end = buffer + length;
-
-	// Find "RIFF" chunk
-	FindChunk("RIFF");
-	if (!(data_p && !memcmp((void *)(data_p+8), "WAVE", 4)))
+	if (!S_ParseSound (name, buffer, length, &parsed, &ogg))
+		goto done;
+	pcm = ogg.data ? ogg.data : buffer + parsed.dataofs;
+	out = S_CopyWAVSamples (pcm, parsed.samples,
+		parsed.channels, parsed.width, &width);
+	if (!out)
 	{
-		Com_DPrintf("S_LoadWAV: missing 'RIFF/WAVE' chunks (%s)\n", name);
-		FS_FreeFile(buffer);
-		return false;
+		Com_Printf ("Sound %s: could not allocate converted samples\n",
+			LOG_CLIENT | LOG_WARNING, name);
+		goto done;
 	}
-
-	// Get "fmt " chunk
-	iff_data = data_p + 12;
-
-	FindChunk("fmt ");
-	if (!data_p)
+	if (width == 2)
 	{
-		Com_DPrintf("S_LoadWAV: missing 'fmt ' chunk (%s)\n", name);
-		FS_FreeFile(buffer);
-		return false;
-	}
-
-	data_p += 8;
-
-	if (GetLittleShort() != 1)
-	{
-		Com_DPrintf("S_LoadWAV: Microsoft PCM format only (%s)\n", name);
-		FS_FreeFile(buffer);
-		return false;
-	}
-
-	info->channels = GetLittleShort();
-	if (info->channels != 1)
-	{
-		Com_DPrintf("S_LoadWAV: only mono WAV files supported (%s)\n", name);
-		FS_FreeFile(buffer);
-		return false;
-	}
-
-	info->rate = GetLittleLong();
-
-	data_p += 4+2;
-
-	info->width = GetLittleShort() / 8;
-	if (info->width != 1 && info->width != 2)
-	{
-		Com_DPrintf("S_LoadWAV: only 8 and 16 bit WAV files supported (%s)\n", name);
-		FS_FreeFile(buffer);
-		return false;
-	}
-
-	// Find data chunk
-	FindChunk("data");
-	if (!data_p)
-	{
-		Com_DPrintf("S_LoadWAV: missing 'data' chunk (%s)\n", name);
-		FS_FreeFile(buffer);
-		return false;
-	}
-
-	data_p += 4;
-	info->samples = GetLittleLong() / info->width;
-
-	if (info->samples <= 0)
-	{
-		Com_DPrintf("S_LoadWAV: file with 0 samples (%s)\n", name);
-		FS_FreeFile(buffer);
-		return false;
-	}
-
-	// Load the data
-	*wav = out = Z_TagMalloc(info->samples * info->width, TAGMALLOC_CLIENT_SOUNDCACHE);
-	memcpy(out, buffer + (data_p - buffer), info->samples * info->width);
-
-	FS_FreeFile(buffer);
-
-	return true;
-}
-#endif
-
-/*
-============
-GetWavinfo
-============
-*/
-wavinfo_t GetWavinfo (char *name, byte *wav, int wavlength)
-{
-	wavinfo_t	info;
-	int     i;
-	int     format;
-	int		samples;
-
-	memset (&info, 0, sizeof(info));
-
-	if (!wav)
-		return info;
-		
-	iff_data = wav;
-	iff_end = wav + wavlength;
-
-// find "RIFF" chunk
-	FindChunk("RIFF");
-	if (!(data_p && !strncmp((const char *)data_p+8, "WAVE", 4)))
-	{
-		Com_Printf("GetWavinfo: Missing RIFF/WAVE chunks (%s)\n", LOG_CLIENT, name);
-		return info;
-	}
-
-// get "fmt " chunk
-	iff_data = data_p + 12;
-// DumpChunks ();
-
-	FindChunk("fmt ");
-	if (!data_p)
-	{
-		Com_Printf("GetWavinfo: Missing fmt chunk (%s)\n", LOG_CLIENT, name);
-		return info;
-	}
-	data_p += 8;
-	format = GetLittleShort();
-	if (format != 1)
-	{
-		Com_Printf("GetWavinfo: Microsoft PCM format only (%s)\n", LOG_CLIENT, name);
-		return info;
-	}
-
-	info.channels = GetLittleShort();
-	info.rate = GetLittleLong();
-	data_p += 4+2;
-	info.width = GetLittleShort() / 8;
-
-// get cue chunk
-	FindChunk("cue ");
-	if (data_p)
-	{
-		data_p += 32;
-		info.loopstart = GetLittleLong();
-//		Com_Printf("loopstart=%d\n", sfx->loopstart);
-
-	// if the next chunk is a LIST chunk, look for a cue length marker
-		FindNextChunk ("LIST");
-		if (data_p)
+		const unsigned host = 1;
+		if (*(const byte *)&host != 1)
 		{
-			if ((data_p - wav) + 32 <= wavlength && !strncmp ((const char *)data_p + 28, "mark", 4))
-			{	// this is not a proper parse, but it works with cooledit...
-				data_p += 24;
-				i = GetLittleLong ();	// samples in loop
-				info.samples = info.loopstart + i;
-//				Com_Printf("looped length: %i\n", i);
+			size_t i, count = (size_t)parsed.samples * parsed.channels;
+			for (i = 0; i < count; i++)
+			{
+				byte first = out[i * 2];
+				out[i * 2] = out[i * 2 + 1];
+				out[i * 2 + 1] = first;
 			}
 		}
 	}
-	else
-		info.loopstart = -1;
+	info->rate = parsed.rate;
+	info->width = width;
+	info->channels = parsed.channels;
+	info->samples = parsed.samples;
+	info->loopstart = parsed.loopstart;
+	*wav = out;
+	success = true;
+done:
+	S_FreeOgg (&ogg);
+	FS_FreeFile (buffer);
+	return success;
+}
+#endif
 
-// find data chunk
-	FindChunk("data");
-	if (!data_p)
-	{
-		Com_Printf("GetWavinfo: Missing data chunk (%s)\n", LOG_CLIENT, name);
-		return info;
-	}
-
-	data_p += 4;
-	samples = GetLittleLong () / info.width;
-
-	if (info.samples)
-	{
-		if (samples < info.samples)
-			Com_Error (ERR_DROP, "Sound %s has a bad loop length", name);
-	}
-	else
-		info.samples = samples;
-
-	info.dataofs = (int)(data_p - wav);
-	
+wavinfo_t GetWavinfo (char *name, byte *wav, int wavlength)
+{
+	wavinfo_t info;
+	S_ParseWAV (name, wav, wavlength, &info);
 	return info;
 }

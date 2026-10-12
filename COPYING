@@ -1,3 +1,8 @@
+The imported strafe_helper component is covered by MPL-2.0; its license
+text is in client/jump/LICENSE. That directory also contains GPL-derived
+additions. Consult the individual source notices and the donor NOTE;
+directory location alone does not establish a file's license.
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 2, June 1991
 

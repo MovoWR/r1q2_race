@@ -1,0 +1,7 @@
+option('core_renderer', type: 'boolean', value: true, description: 'Build the optional OpenGL core renderer')
+option('chat_translator', type: 'boolean', value: true, description: 'Build the online chat translator')
+option('http_downloads', type: 'boolean', value: true, description: 'Build HTTP downloads with static curl and Windows Schannel')
+option('avcodec', type: 'boolean', value: false, description: 'Enable local media using an explicit static MSVC FFmpeg prefix')
+option('ffmpeg_root', type: 'string', value: '', description: 'Native x86 /MT static FFmpeg installation prefix')
+option('openal', type: 'boolean', value: false, description: 'Build the optional static OpenAL sound backend')
+option('openal_root', type: 'string', value: '', description: 'Native x86 /MT static OpenAL installation prefix')

@@ -37,7 +37,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #ifdef USE_CURL
 #ifdef _WIN32
+#ifndef CURL_STATICLIB
 #define CURL_STATICLIB
+#endif
 #define CURL_HIDDEN_SYMBOLS
 #define CURL_EXTERN_SYMBOL
 #define CURL_CALLING_CONVENTION __cdecl
@@ -205,6 +207,16 @@ typedef struct client_state_s
 	usercmd_t	cmds[CMD_BACKUP];	// each mesage will send several old cmds
 	int			cmd_time[CMD_BACKUP];	// time sent, for calculating pings
 	int16		predicted_origins[CMD_BACKUP][3];	// for debug comparing against server
+	int predicted_sequences[CMD_BACKUP];			// sequence + 1; zero is invalid
+
+	struct
+	{
+		qboolean valid;
+		int sequence, time, msec;
+		pmove_state_t base;
+		vec3_t start, end;
+	} cmdsync_view; // presentation only; cleared with client state
+
 
 	float		predicted_step;				// for stair up smoothing
 	unsigned	predicted_step_time;
@@ -236,7 +248,7 @@ typedef struct client_state_s
 	//
 	// transient data from server
 	//
-	char		layout[1024];		// general 2D overlay
+	char layout[2048]; // general 2D overlay
 	int			inventory[MAX_ITEMS];
 
 	//
@@ -279,7 +291,7 @@ typedef struct client_state_s
 	//r1: defer rendering when realtime < this
 	uint32			defer_rendering;
 
-	byte			demoFrame[1400];
+	byte demoFrame[MAX_MSGLEN];
 	sizebuf_t		demoBuff;
 	frame_t			*demoLastFrame;
 
@@ -412,10 +424,13 @@ extern	cvar_t	*cl_stereo;
 #endif
 
 extern	cvar_t	*cl_gun;
+extern cvar_t *cl_gun_x, *cl_gun_y, *cl_gun_z;
 extern	cvar_t	*cl_add_blend;
 extern	cvar_t	*cl_add_lights;
 extern	cvar_t	*cl_add_particles;
 extern	cvar_t	*cl_add_entities;
+extern cvar_t *cl_noglow;
+extern cvar_t *cl_kickangles;
 extern	cvar_t	*cl_predict;
 extern	cvar_t	*cl_backlerp;
 extern	cvar_t	*cl_footsteps;
@@ -468,6 +483,11 @@ extern	cvar_t	*cl_nolerp;
 
 extern	cvar_t	*cl_railtrail;
 extern	cvar_t	*cl_async;
+qboolean CL_AsyncCommandSync (void);
+qboolean CL_CommandWaitPending (void);
+void CL_CommandWait (void);
+void CL_CommandWaitForSend (qboolean jump_down);
+float CL_CommandFrameTime (void);
 
 extern	cvar_t	*cl_protocol;
 extern	cvar_t	*cl_test;
@@ -671,9 +691,16 @@ void VID_ReloadRefresh (void);
 //
 // cl_main
 //
+extern qboolean reflib_active;
 extern	refexport_t	re;		// interface to refresh .dll
 
 void CL_Init (void);
+void CL_TranslateInit (void);
+void CL_TranslateShutdown (void);
+void CL_TranslateFrame (void);
+void CL_TranslateCancel (void);
+void CL_TranslateChat (const char *chat);
+qboolean CL_TranslateSendChat (const char *command, const char *text);
 
 void CL_FixUpGender(void);
 void CL_Disconnect (qboolean skipdisconnect);
@@ -703,8 +730,11 @@ extern 	kbutton_t 	in_strafe;
 extern 	kbutton_t 	in_speed;
 
 void CL_InitInput (void);
+void CL_InitCmd (void);
 void CL_SendCmd (void);
 void CL_SendCmd_Synchronous (void);
+qboolean CL_PreviewCmd (usercmd_t *cmd, vec3_t angles);
+void IN_PreviewMove (usercmd_t *cmd);
 void CL_SendMove (usercmd_t *cmd);
 
 void CL_ClearState (void);

@@ -20,6 +20,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl_ents.c -- entity parsing and management
 
 #include "client.h"
+#include "jump/jump.h"
+#include <float.h>
 
 
 extern	struct model_s	*cl_mod_powerscreen;
@@ -1506,7 +1508,9 @@ void CL_ParseFrame (int extrabits)
 
 			cl.sound_prepped = true;	// can start mixing ambient sounds
 		}
-	
+
+		CL_JumpDemoFrame ();
+
 		// fire entity events
 		CL_FireEntityEvents (&cl.frame);
 
@@ -1666,7 +1670,9 @@ static void CL_AddPacketEntities (const frame_t *frame)
 		}
 // pmm
 //======
-		
+		if (cl_noglow->intvalue && !(renderfx & RF_BEAM))
+			renderfx &= ~RF_GLOW;
+
 
 		//hopefully the world never moves :)
 		//if (s1->number <= cl.maxclients)
@@ -2247,7 +2253,28 @@ lerp_time;*/
 	}
 }
 
+/* Keep invalid config values out of the local view entity. */
+static float CL_GunPlacement (cvar_t *var)
+{
+	float value = var ? var->value : 0;
+	if (!(value >= -FLT_MAX && value <= FLT_MAX))
+		return 0;
+	if (value < -16)
+		return -16;
+	if (value > 16)
+		return 16;
+	return value;
+}
 
+static void CL_OffsetViewWeapon (entity_t *gun)
+{
+	int i;
+	float x = CL_GunPlacement (cl_gun_x);
+	float y = CL_GunPlacement (cl_gun_y);
+	float z = CL_GunPlacement (cl_gun_z);
+	for (i = 0; i < 3; i++)
+		gun->origin[i] += y * cl.v_forward[i] + x * cl.v_right[i] + z * cl.v_up[i];
+}
 
 /*
 ==============
@@ -2357,6 +2384,7 @@ static void CL_AddViewWeapon (const player_state_t *ps, const player_state_t *op
 		gun.angles[i] = cl.refdef.viewangles[i] + LerpAngle (ops->gunangles[i],
 			ps->gunangles[i], cl.lerpfrac);
 	}
+	CL_OffsetViewWeapon (&gun);
 
 	gun.flags = RF_MINLIGHT | RF_DEPTHHACK | RF_WEAPONMODEL;
 	
@@ -2517,9 +2545,12 @@ static void CL_CalcViewValues (void)
 	//if (cl_test3->intvalue)
 	//	Com_Printf ("Kick lerp: %.2f, lerpfrac %.2f, servertime: %d, cltime %d, lerping until %d (%.1f, %.1f, %.1f) -> (%.1f, %.1f, %.1f)\n", LOG_GENERAL, kicklerp, cl.lerpfrac, cl.frame.servertime, cl.time, cl.kicklerp_end, kicklerp_from[0], kicklerp_from[1], kicklerp_from[2], kicklerp_to[0], kicklerp_to[1], kicklerp_to[2]);
 
-	cl.refdef.viewangles[0] += LerpAngle (kicklerp_from[0], kicklerp_to[0], kicklerp);
-	cl.refdef.viewangles[1] += LerpAngle (kicklerp_from[1], kicklerp_to[1], kicklerp);
-	cl.refdef.viewangles[2] += LerpAngle (kicklerp_from[2], kicklerp_to[2], kicklerp);
+	if (cl_kickangles->intvalue)
+	{
+		cl.refdef.viewangles[0] += LerpAngle (kicklerp_from[0], kicklerp_to[0], kicklerp);
+		cl.refdef.viewangles[1] += LerpAngle (kicklerp_from[1], kicklerp_to[1], kicklerp);
+		cl.refdef.viewangles[2] += LerpAngle (kicklerp_from[2], kicklerp_to[2], kicklerp);
+	}
 
 	AngleVectors (cl.refdef.viewangles, cl.v_forward, cl.v_right, cl.v_up);
 

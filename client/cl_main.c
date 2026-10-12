@@ -20,10 +20,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl_main.c  -- client main loop
 
 #include "client.h"
+#include "cl_timing.h"
+#include "jump/jump.h"
+#include "jump/jump_servers.h"
+#include "../qcommon/md3_format.h"
 
-#ifndef __TIMESTAMP__
-#define __TIMESTAMP__ __DATE__ " " __TIME__
-#endif
+#define CL_VERSION_REPLY "say \"" R1Q2_CLIENT_NAME " " VERSION \
+	" | " BUILDSTRING " " CPUSTRING " | built " __DATE__ " " __TIME__ "\"\n"
 
 int deferred_model_index;
 
@@ -85,15 +88,61 @@ cvar_t	*cl_backlerp;
 cvar_t	*r_maxfps;
 cvar_t	*cl_maxfps;
 cvar_t	*cl_async;
+
+#ifdef LINUX
+extern uint32 sys_frame_time;
+#endif
+static qboolean command_wait_pending;
+static int command_wait_upmove = -1;
+static int command_wait_sends;
+static float command_frame_time;
+static int synchronous_delta;
+
+qboolean CL_AsyncCommandSync (void)
+{
+	return cl_async && cl_async->intvalue == 2;
+}
+
+qboolean CL_CommandWaitPending (void)
+{
+	return cl_async && (cl_async->intvalue == 1 || CL_AsyncCommandSync ()) && command_wait_pending;
+}
+
+void CL_CommandWait (void)
+{
+	if (CL_AsyncCommandSync ())
+		command_wait_pending = true;
+}
+
+/* Used by the built-in double-jump macro to retain each input phase until
+ * a command is sent. Ordinary mode 1 wait aliases keep their legacy behavior. */
+void CL_CommandWaitForSend (qboolean jump_down)
+{
+	if (cl_async && (cl_async->intvalue == 1 || CL_AsyncCommandSync ()))
+	{
+		command_wait_pending = true;
+		command_wait_upmove = jump_down;
+		command_wait_sends = 0;
+	}
+}
+
+float CL_CommandFrameTime (void)
+{
+	return CL_AsyncCommandSync () ? command_frame_time : cls.frametime;
+}
+
 cvar_t	*cl_smoothsteps;
 cvar_t	*cl_instantpacket;
 
 cvar_t	*cl_gun;
+cvar_t *cl_gun_x, *cl_gun_y, *cl_gun_z;
 
 cvar_t	*cl_add_particles;
 cvar_t	*cl_add_lights;
 cvar_t	*cl_add_entities;
 cvar_t	*cl_add_blend;
+cvar_t *cl_noglow;
+cvar_t *cl_kickangles;
 
 cvar_t	*cl_shownet;
 cvar_t	*cl_showmiss;
@@ -246,7 +295,9 @@ void CL_WriteDemoMessage (byte *buff, int len, qboolean forceFlush)
 		SZ_Clear (&cl.demoBuff);
 	}
 
-	if (len)
+	if (len > cl.demoBuff.maxsize)
+		cl.demoBuff.overflowed = true;
+	else if (len)
 		SZ_Write (&cl.demoBuff, buff, len);
 }
 
@@ -587,6 +638,7 @@ void Cmd_ForwardToServer (void)
 	}
 	MSG_EndWriting (&cls.netchan.message);
 	send_packet_now = true;
+	CL_TimingTrigger (CL_TIMING_STRINGCMD);
 }
 
 /*void CL_Setenv_f( void )
@@ -672,6 +724,7 @@ void CL_ForwardToServer_f (void)
 		MSG_EndWriting (&cls.netchan.message);
 
 		send_packet_now = true;
+		CL_TimingTrigger (CL_TIMING_STRINGCMD);
 	}
 }
 
@@ -1014,65 +1067,68 @@ CL_Rcon_f
   an unconnected command.
 =====================
 */
-void CL_Rcon_f (void)
+/* Console RCON retains the native response admission window and wire format. */
+void CL_SendConsoleRcon (const netadr_t *address, const char *password, const char *command)
 {
-	char		message[1024];
-	netadr_t	to;
-
-	//r1: buffer check ffs!
-	if ((strlen(Cmd_Args()) + strlen(rcon_client_password->string) + 16) >= sizeof(message)) {
+	char message[1024];
+	netadr_t to = *address;
+	if (strlen (command) + strlen (password) + 16 >= sizeof (message))
+	{
 		Com_Printf ("Length of password + command exceeds maximum allowed length.\n", LOG_CLIENT);
 		return;
 	}
-
-	*(int *)message = -1;
-	message[4] = 0;
-
-	NET_Config (NET_CLIENT);		// allow remote
-
-	strcat (message, "rcon ");
-
-	if (rcon_client_password->string[0])
-	{
-		strcat (message, rcon_client_password->string);
-		strcat (message, " ");
-	}
-
-	strcat (message, Cmd_Args());
-
-	/*for (i=1 ; i<Cmd_Argc() ; i++)
-	{
-		strcat (message, Cmd_Argv(i));
-		strcat (message, " ");
-	}*/
-	
-
-	if (cls.state >= ca_connected)
-	{
-		to = cls.netchan.remote_address;
-	}
-	else
-	{
-		if (!strlen(rcon_address->string))
-		{
-			Com_Printf ("You must either be connected,\n"
-						"or set the 'rcon_address' cvar\n"
-						"to issue rcon commands\n", LOG_CLIENT);
-
-			return;
-		}
-		NET_StringToAdr (rcon_address->string, &to);
-		if (to.port == 0)
-			to.port = ShortSwap (PORT_SERVER);
-	}
-	
-	//allow remote response
-	incoming_allowed[incoming_allowed_index & 15].remote = to;
+	memset (message, 255, 4);
+	Com_sprintf (message + 4, sizeof (message) - 4, "rcon %s%s%s", password, *password ? " " : "", command);
+	NET_Config (NET_CLIENT);
+	incoming_allowed[incoming_allowed_index & 15].remote = *address;
 	incoming_allowed[incoming_allowed_index & 15].type = CL_RCON;
 	incoming_allowed[incoming_allowed_index & 15].time = cls.realtime + 2500;
 	incoming_allowed_index++;
+	NET_SendPacket (NS_CLIENT, (int)strlen (message) + 1, message, &to);
+}
 
-	NET_SendPacket (NS_CLIENT, (int)strlen(message)+1, message, &to);
+/* Send a single server command without reinterpreting chat as local commands. */
+void CL_SendConsoleChat (const char *command, const char *text)
+{
+	char message[MAX_STRING_CHARS];
+	if (cls.state != ca_active || cl.attractloop)
+		return;
+	if (CL_TranslateSendChat (command, text))
+		return;
+	if (strlen (command) + strlen (text) + 4 >= sizeof (message))
+	{
+		Com_Printf ("Chat message is too long.\n", LOG_CLIENT);
+		return;
+	}
+	Com_sprintf (message, sizeof (message), "%s \"%s\"", command, text);
+	MSG_WriteByte (clc_stringcmd);
+	MSG_WriteString (message);
+	MSG_EndWriting (&cls.netchan.message);
+	send_packet_now = true;
+	CL_TimingTrigger (CL_TIMING_STRINGCMD);
+}
+
+void CL_Rcon_f (void)
+{
+	netadr_t to;
+	if (cls.state >= ca_connected)
+		to = cls.netchan.remote_address;
+	else
+	{
+		if (!rcon_address->string[0])
+		{
+			Com_Printf ("You must either be connected, or set rcon_address to issue rcon commands.\n", LOG_CLIENT);
+			return;
+		}
+		if (!NET_StringToAdr (rcon_address->string, &to))
+		{
+			Com_Printf ("Invalid rcon_address.\n", LOG_CLIENT);
+			return;
+		}
+		if (!to.port)
+			to.port = ShortSwap (PORT_SERVER);
+	}
+	CL_SendConsoleRcon (&to, rcon_client_password->string, Cmd_Args ());
 }
 
 void CL_ServerStatus_f (void)
@@ -1142,6 +1198,14 @@ void CL_ClearState (void)
 {
 	cvar_t	*gameDirHack;
 
+	command_wait_pending = false;
+	command_wait_upmove = -1;
+	command_frame_time = 0;
+	CL_TranslateCancel ();
+	CL_TimingEnd ();
+	CL_JumpClear ();
+	CL_JumpClearInput ();
+	CL_JumpClearDraw ();
 	S_StopAllSounds ();
 	CL_ClearEffects ();
 	CL_ClearTEnts ();
@@ -1194,7 +1258,9 @@ void CL_Disconnect (qboolean skipdisconnect)
 	}
 
 	VectorClear (cl.refdef.blend);
-	re.CinematicSetPalette(NULL);
+	/* Quit can execute from r1gl.cfg while the renderer is being initialized. */
+	if (reflib_active)
+		re.CinematicSetPalette (NULL);
 
 	//r1: why?
 	//M_ForceMenuOff ();
@@ -1633,12 +1699,22 @@ void CL_ConnectionlessPacket (void)
 
 	type = CL_UNDEF;
 
+	/* Private browser requests have their own exact-address/port allowlist. */
+	if (!strcmp (c, "print") && net_message.readcount >= 0 &&
+		net_message.readcount <= net_message.cursize &&
+		CL_JumpServersStatus (&net_from, net_message.data + net_message.readcount,
+			(size_t)(net_message.cursize - net_message.readcount)))
+		return;
+
 	//r1: server responding to a status broadcast (ignores security check due
 	//to broadcasts responding)
 	if (!strcmp(c, "info"))
 	{
 		if (cls.state == ca_disconnected || cls.key_dest != key_game)
+		{
+			CL_JumpServersInfo (&net_from);
 			CL_ParseStatusMessage ();
+		}
 		return;
 	}
 	else if (!strcmp (c, "passive_connect"))
@@ -1786,7 +1862,7 @@ safe:
 		MSG_WriteString ("new");
 		MSG_EndWriting (&cls.netchan.message);
 
-		cls.key_dest = key_game;
+		Con_ConnectionEstablished ();
 
 		//CL_FixCvarCheats();
 		send_packet_now = true;
@@ -2088,8 +2164,11 @@ void CL_ReadPackets (void)
 		{
 			if (cls.state == ca_connected)
 				send_packet_now = true;
-			else if (cl_instantack->intvalue)
-				Netchan_Transmit (&cls.netchan, 0, NULL);
+			else if (cl_instantack->intvalue && !CL_AsyncCommandSync ())
+			{
+				CL_JumpPacketSent ();
+				CL_TimingTransmit (0, NULL, NULL);
+			}
 
 			if (cl_shownet->intvalue == 1)
 				Com_Printf ("r", LOG_CLIENT);
@@ -2097,6 +2176,7 @@ void CL_ReadPackets (void)
 
 		if (CL_ParseServerMessage ())
 		{
+			CL_JumpPacketSample ();
 			CL_AddNetgraph ();
 
 			if (scr_sizegraph->intvalue)
@@ -2114,8 +2194,8 @@ void CL_ReadPackets (void)
 	//
 	// check timeout
 	//
-	if (cls.state >= ca_connected
-	 && cls.realtime - cls.netchan.last_received > cl_timeout->intvalue*1000)
+	// Netchan_Process stamps last_received with curtime, which may be newer than cls.realtime.
+	if (cls.state >= ca_connected && curtime - cls.netchan.last_received > cl_timeout->intvalue * 1000)
 	{
 		if (++cl.timeoutcount > 5)	// timeoutcount saves debugger
 		{
@@ -2208,6 +2288,7 @@ int precache_model_skin;
 uint32 precache_start_time;
 
 static byte *precache_model; // used for skin checking in alias models
+static int precache_model_len;
 
 //#define	PLAYER_MULT	5
 
@@ -2596,12 +2677,135 @@ const char *colortext(const char *text)
 	return ctext[c];
 }
 
+// Only the skin table is needed here; geometry is validated by the renderer.
+static const char *CL_MD2SkinName (const byte *data, int length, int index)
+{
+	dmdl_t header;
+	uint32 num_skins, offset;
+	const char *name;
+
+	if (!data || index < 0 || length < (int)sizeof (header))
+		return NULL;
+	memcpy (&header, data, sizeof (header));
+	if (LittleLong (header.ident) != IDALIASHEADER ||
+		LittleLong (header.version) != ALIAS_VERSION)
+		return NULL;
+
+	num_skins = (uint32)LittleLong (header.num_skins);
+	offset = (uint32)LittleLong (header.ofs_skins);
+	if (num_skins > MAX_MD2SKINS || (uint32)index >= num_skins ||
+		offset < sizeof (header) || offset > (uint32)length ||
+		num_skins > ((uint32)length - offset) / MAX_SKINNAME)
+		return NULL;
+
+	name = (const char *)data + offset + index * MAX_SKINNAME;
+	if (!memchr (name, 0, MAX_SKINNAME))
+		return NULL;
+	return name;
+}
+
+// MD3 keeps each surface's skin table inside that surface, unlike MD2.
+// Return one flattened skin name only after checking every offset read from disk.
+static const char *CL_MD3SkinName (const byte *data, int length, int index)
+{
+	const dmd3header_t *header;
+	const dmd3mesh_t *mesh;
+	const dmd3skin_t *skin;
+	const char *name_end, *part, *p;
+	uint32 end, offset, size, skin_offset, num_skins;
+	uint32 i, num_meshes;
+
+	if (index < 0 || length < (int)sizeof (*header))
+		return NULL;
+
+	header = (const dmd3header_t *)data;
+	if ((uint32)LittleLong (header->ident) != MD3_IDENT ||
+		(uint32)LittleLong (header->version) != MD3_VERSION)
+		return NULL;
+
+	// Q2PRO reads surfaces against the actual file length; ofs_end is advisory.
+	end = (uint32)length;
+	offset = (uint32)LittleLong (header->ofs_meshes);
+	num_meshes = (uint32)LittleLong (header->num_meshes);
+	if (offset < sizeof (*header) || offset > end ||
+		num_meshes == 0 || num_meshes > MD3_MAX_MESHES)
+		return NULL;
+
+	for (i = 0; i < num_meshes; i++)
+	{
+		if (end - offset < sizeof (*mesh))
+			return NULL;
+		mesh = (const dmd3mesh_t *)(data + offset);
+		size = (uint32)LittleLong (mesh->meshsize);
+		skin_offset = (uint32)LittleLong (mesh->ofs_skins);
+		num_skins = (uint32)LittleLong (mesh->num_skins);
+		if ((uint32)LittleLong (mesh->ident) != MD3_IDENT ||
+			size < sizeof (*mesh) || size > end - offset ||
+			num_skins > MD3_MAX_SKINS ||
+			(num_skins && (skin_offset < sizeof (*mesh) || skin_offset > size || num_skins > (size - skin_offset) / sizeof (*skin))))
+			return NULL;
+
+		if ((uint32)index < num_skins)
+		{
+			skin = (const dmd3skin_t *)(data + offset + skin_offset + index * sizeof (*skin));
+			name_end = memchr (skin->name, 0, sizeof (skin->name));
+			if (!name_end || name_end == skin->name)
+				return NULL;
+			part = skin->name;
+			for (p = skin->name; p <= name_end; p++)
+			{
+				unsigned char c = (unsigned char)*p;
+				if (p != name_end && (c < 32 || c == 127 || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|'))
+					return NULL;
+				if (p == name_end || c == '/' || c == '\\')
+				{
+					if (p == part || (p - part == 1 && part[0] == '.') ||
+						(p - part == 2 && part[0] == '.' && part[1] == '.'))
+						return NULL;
+					part = p + 1;
+				}
+			}
+			return skin->name;
+		}
+		index -= (int)num_skins;
+		offset += size;
+	}
+
+	return NULL;
+}
+
+// Keep sprite precache paths within the same bounds admitted by the renderer.
+static qboolean CL_SpriteSkinName (const char *name)
+{
+	const char *end, *part, *p;
+
+	end = memchr (name, 0, MAX_SKINNAME);
+	if (!end || end == name || end - name >= MAX_QPATH)
+		return false;
+	part = name;
+	for (p = name; p <= end; p++)
+	{
+		unsigned char c = (unsigned char)*p;
+		if (p != end && (c < 32 || c == 127 || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|'))
+			return false;
+		if (p == end || c == '/' || c == '\\')
+		{
+			if (p == part || (p - part == 1 && part[0] == '.') ||
+				(p - part == 2 && part[0] == '.' && part[1] == '.'))
+				return false;
+			part = p + 1;
+		}
+	}
+	return true;
+}
+
 void CL_ResetPrecacheCheck (void)
 {
 	precache_start_time = Sys_Milliseconds();
 
 	precache_check = CS_MODELS;
 	precache_model = 0;
+	precache_model_len = 0;
 	precache_model_skin = -1;
 }
 
@@ -2613,8 +2817,10 @@ void CL_RequestNextDownload (void)
 	char		fn[MAX_OSPATH];
 
 	char		*cmd;
-	dmdl_t		*pheader;
+	uint32 model_ident;
 	dsprite_t	*spriteheader;
+	int sprite_numframes;
+	const int sprite_header_len = (int)(sizeof (dsprite_t) - sizeof (dsprframe_t));
 
 	int			i;
 
@@ -2684,20 +2890,26 @@ redoSkins:;
 					{
 						//load model into buffer
 						precache_model_skin = 1;
-						FS_LoadFile (cl.configstrings[precache_check], (void **)&precache_model);
-						if (!precache_model)
+						precache_model_len = FS_LoadFile (cl.configstrings[precache_check], (void **)&precache_model);
+						if (!precache_model || precache_model_len < (int)sizeof (uint32))
 						{
-							//shouldn't happen?
+							if (precache_model)
+								FS_FreeFile (precache_model);
+							precache_model = NULL;
 							precache_model_skin = 0;
 							precache_check++;
 							continue; // couldn't load it
 						}
-						
+
+						memcpy (&model_ident, precache_model, sizeof (model_ident));
+						model_ident = LittleLong (model_ident);
+
 						//is it an alias model
-						if (LittleLong(*(uint32 *)precache_model) != IDALIASHEADER)
+						if (model_ident != IDALIASHEADER &&
+							model_ident != MD3_IDENT)
 						{
 							//is it a sprite
-							if (LittleLong(*(uint32 *)precache_model) != IDSPRITEHEADER)
+							if (model_ident != IDSPRITEHEADER)
 							{
 								//no, free and move onto next model
 								FS_FreeFile(precache_model);
@@ -2710,9 +2922,15 @@ redoSkins:;
 							{
 								//get sprite header
 								spriteheader = (dsprite_t *)precache_model;
-								if (LittleLong (spriteheader->version != SPRITE_VERSION))
+								sprite_numframes = -1;
+								if (precache_model_len >= sprite_header_len)
+									sprite_numframes = LittleLong (spriteheader->numframes);
+								if (precache_model_len < sprite_header_len ||
+									LittleLong (spriteheader->version) != SPRITE_VERSION ||
+									sprite_numframes < 0 || sprite_numframes > MAX_MD2SKINS ||
+									sprite_numframes > (precache_model_len - sprite_header_len) / (int)sizeof (dsprframe_t))
 								{
-									//this is unknown version! free and move onto next.
+									// Invalid header or truncated frame table; skip this sprite.
 									FS_FreeFile(precache_model);
 									precache_model = NULL;
 									precache_check++;
@@ -2721,46 +2939,48 @@ redoSkins:;
 								}
 							}
 						}
-						else
+						else if (model_ident == MD3_IDENT &&
+							(precache_model_len < (int)sizeof (dmd3header_t) ||
+								(uint32)LittleLong (((dmd3header_t *)precache_model)->version) != MD3_VERSION))
 						{
-							//get model header
-							pheader = (dmdl_t *)precache_model;
-							if (LittleLong (pheader->version) != ALIAS_VERSION)
-							{
-								//unknown version! free and move onto next
-								FS_FreeFile(precache_model);
-								precache_model = NULL;
-								precache_check++;
-								precache_model_skin = 0;
-								continue; // couldn't load it
-							}
+							FS_FreeFile (precache_model);
+							precache_model = NULL;
+							precache_check++;
+							precache_model_skin = 0;
+							continue;
 						}
 					}
 
+					memcpy (&model_ident, precache_model, sizeof (model_ident));
+					model_ident = LittleLong (model_ident);
+
 					//if its an alias model
-					if (LittleLong(*(uint32 *)precache_model) == IDALIASHEADER)
+					if (model_ident == IDALIASHEADER)
 					{
-						pheader = (dmdl_t *)precache_model;
-
-						//iterate through number of skins
-						while (precache_model_skin - 1 < LittleLong(pheader->num_skins))
+						while ((skinname = (char *)CL_MD2SkinName (precache_model,
+									precache_model_len, precache_model_skin - 1)) != NULL)
 						{
-							skinname = (char *)precache_model +
-								LittleLong(pheader->ofs_skins) + 
-								(precache_model_skin - 1)*MAX_SKINNAME;
-
 							//r1: spam warning for models that are broken
 							if (strchr (skinname, '\\'))
 							{
 								Com_Printf ("Warning, model %s with incorrectly linked skin: %s\n", LOG_CLIENT|LOG_WARNING, cl.configstrings[precache_check], skinname);
 							}
-							else if (strlen(skinname) > MAX_SKINNAME-1)
-							{
-								Com_Error (ERR_DROP, "Model %s has too long a skin path: %s", cl.configstrings[precache_check], skinname);
-							}
 
 							//check if this skin exists
-							if (!CL_CheckOrDownloadFile(skinname))
+							if (skinname[0] && !CL_CheckOrDownloadFile (skinname))
+							{
+								precache_model_skin++;
+								return; // started a download
+							}
+							precache_model_skin++;
+						}
+					}
+					else if (model_ident == MD3_IDENT)
+					{
+						while ((skinname = (char *)CL_MD3SkinName (precache_model,
+									precache_model_len, precache_model_skin - 1)) != NULL)
+						{
+							if (skinname[0] && !CL_CheckOrDownloadFile (skinname))
 							{
 								precache_model_skin++;
 								return; // started a download
@@ -2777,15 +2997,17 @@ redoSkins:;
 						while (precache_model_skin - 1 < LittleLong(spriteheader->numframes))
 						{
 							skinname = spriteheader->frames[(precache_model_skin - 1)].name;
+							if (!CL_SpriteSkinName (skinname))
+							{
+								Com_Printf ("Warning, sprite %s has invalid frame %d skin name\n",
+									LOG_CLIENT | LOG_WARNING, cl.configstrings[precache_check], precache_model_skin - 1);
+								break;
+							}
 
 							//r1: spam warning for models that are broken
 							if (strchr (skinname, '\\'))
 							{
 								Com_Printf ("Warning, sprite %s with incorrectly linked skin: %s\n", LOG_CLIENT|LOG_WARNING, cl.configstrings[precache_check], skinname);
-							}
-							else if (strlen(skinname) > MAX_SKINNAME-1)
-							{
-								Com_Error (ERR_DROP, "Sprite %s has too long a skin path: %s", cl.configstrings[precache_check], skinname);
 							}
 
 							//check if this skin exists
@@ -3106,11 +3328,9 @@ skipplayer:;
 			while (precache_tex < numtexinfo) {
 				//char fn[MAX_OSPATH];
 
-				//r1: spam warning about texture
+				// Root-level texture names are valid; retain the malformed separator warning.
 				if (strchr (map_surfaces[precache_tex].rname, '\\'))
 					Com_Printf ("Warning, incorrectly referenced texture '%s'\n", LOG_CLIENT|LOG_WARNING, map_surfaces[precache_tex].rname);
-				else if (!strchr (map_surfaces[precache_tex].rname, '/'))
-					Com_Printf ("Warning, texture '%s' not in a sub-directory\n", LOG_CLIENT|LOG_WARNING, map_surfaces[precache_tex].rname);
 
 				Com_sprintf(fn, sizeof(fn), "textures/%s.wal", map_surfaces[precache_tex++].rname);
 				if (!CL_CheckOrDownloadFile(fn))
@@ -3131,9 +3351,6 @@ skipplayer:;
 	CL_PrepRefresh ();
 
 	Com_DPrintf ("Precache completed in %u msec.\n", Sys_Milliseconds() - precache_start_time);
-
-	if (cl_async->intvalue && cl_maxfps->intvalue > 100)
-		Com_Printf ("\n%s\nR1Q2 separates network and rendering so a cl_maxfps value > 30\nis rarely needed. Use r_maxfps to control maximum rendered FPS\n\n", LOG_CLIENT, colortext ("WARNING: A cl_maxfps value of over 100 is strongly discouraged"));
 
 	if (cl_autorecord->intvalue)
 	{
@@ -3266,6 +3483,8 @@ void CL_Toggle_f (void)
 				}
 			}
 		}
+		if (i == Cmd_Argc ())
+			Cvar_Set (Cmd_Argv (1), Cmd_Argv (2));
 	}
 }
 
@@ -3304,6 +3523,9 @@ void _maxfps_changed (cvar_t *var, char *oldValue, char *newValue)
 
 void _async_changed (cvar_t *var, char *oldValue, char *newValue)
 {
+	command_wait_pending = false;
+	command_wait_upmove = -1;
+	command_frame_time = 0;
 	if (var->intvalue == 0)
 	{
 		Cvar_SetValue ("r_maxfps", cl_maxfps->value);
@@ -3531,8 +3753,13 @@ void CL_InitLocal (void)
 	cl_add_lights = Cvar_Get ("cl_lights", "1", 0);
 	cl_add_particles = Cvar_Get ("cl_particles", "1", 0);
 	cl_add_entities = Cvar_Get ("cl_entities", "1", 0);
+	cl_noglow = Cvar_Get ("cl_noglow", "0", 0);
+	cl_kickangles = Cvar_Get ("cl_kickangles", "1", 0);
 	cl_gun = Cvar_Get ("cl_gun", "1", CVAR_ARCHIVE);
 	cl_gun->changed = _gun_changed;
+	cl_gun_x = Cvar_Get ("cl_gun_x", "0", CVAR_ARCHIVE);
+	cl_gun_y = Cvar_Get ("cl_gun_y", "0", CVAR_ARCHIVE);
+	cl_gun_z = Cvar_Get ("cl_gun_z", "0", CVAR_ARCHIVE);
 
 	cl_footsteps = Cvar_Get ("cl_footsteps", "1", 0);
 	cl_noskins = Cvar_Get ("cl_noskins", "0", 0);
@@ -3817,22 +4044,26 @@ typedef struct
 	cvar_t	*var;
 } cheatvar_t;
 
-cheatvar_t	cheatvars[] = {
-	{"timescale", 1, 1, NULL},
-	{"timedemo", 0, 0, NULL},
-	{"r_drawworld", 1, 1, NULL},
-	{"cl_testlights", 0, 0, NULL},
-	{"cl_testblend", 0, 0, NULL},
-	{"r_fullbright", 0, 0, NULL},
-	{"r_drawflat", 0, 0, NULL},
-	{"paused", 0, 0, NULL},
-	{"fixedtime", 0, 0, NULL},
-	{"sw_draworder", 0, 0, NULL},
-	{"gl_lightmap", 0, 0, NULL},
-	{"gl_saturatelighting", 0, 0, NULL},
-	{"gl_lockpvs", 0, 0, NULL},
-	{"sw_lockpvs", 0, 0, NULL},
-	{NULL, 0, 0, NULL}
+cheatvar_t cheatvars[] = {
+	{ "timescale", 1, 1, NULL },
+	{ "timedemo", 0, 0, NULL },
+	{ "r_drawworld", 1, 1, NULL },
+	{ "gl_znear", 2, 2, NULL },
+	{ "cl_testlights", 0, 0, NULL },
+	{ "cl_testblend", 0, 0, NULL },
+	{ "r_fullbright", 0, 0, NULL },
+	{ "r_drawflat", 0, 0, NULL },
+	{ "paused", 0, 0, NULL },
+	{ "fixedtime", 0, 0, NULL },
+	{ "sw_draworder", 0, 0, NULL },
+	{ "gl_lightmap", 0, 0, NULL },
+	{ "gl_saturatelighting", 0, 0, NULL },
+	{ "gl_lockpvs", 0, 0, NULL },
+	{ "gl_showtris", 0, 0, NULL },
+	{ "gl_showorigins", 0, 0, NULL },
+	{ "gl_showtearing", 0, 0, NULL },
+	{ "sw_lockpvs", 0, 0, NULL },
+	{ NULL, 0, 0, NULL }
 };
 
 int		numcheatvars;
@@ -3916,6 +4147,7 @@ void IN_Commands (void);
 void CL_RefreshCmd (void);
 void CL_RefreshInputs (void)
 {
+	CL_JumpClientFrame ();
 	// process new key events
 	Sys_SendKeyEvents ();
 
@@ -3970,6 +4202,7 @@ void CL_LoadDeferredModels (void)
 
 void CL_SendCommand_Synchronous (void)
 {
+	CL_JumpClientFrame ();
 	// get new key events
 	Sys_SendKeyEvents ();
 
@@ -3985,6 +4218,7 @@ void CL_SendCommand_Synchronous (void)
 	//CL_FixCvarCheats ();
 
 	// send intentions now
+	CL_TimingDecision (send_packet_now, userinfo_modified);
 	CL_SendCmd_Synchronous ();
 
 	// resend a connection request if necessary
@@ -3993,23 +4227,21 @@ void CL_SendCommand_Synchronous (void)
 
 void CL_Synchronous_Frame (int msec)
 {
-	static int	extratime;
-
 	if (dedicated->value)
 		return;
 
-	extratime += msec;
+	synchronous_delta += msec;
 
 	if (!cl_timedemo->value)
 	{
 		if (cls.state == ca_connected)
 		{
-			if (extratime < 100 && !send_packet_now)
+			if (synchronous_delta < 100 && !send_packet_now)
 				return;			// don't flood packets out while connecting
 		}
 		else
 		{
-			if (extratime < 1000/cl_maxfps->value)
+			if (synchronous_delta < 1000 / cl_maxfps->value)
 				return;
 		}
 	}
@@ -4018,11 +4250,12 @@ void CL_Synchronous_Frame (int msec)
 	IN_Frame ();
 
 	// decide the simulation time
-	cls.frametime = extratime/1000.0f;
-	cl.time += extratime;
+	CL_TimingFrame (synchronous_delta, true);
+	cls.frametime = synchronous_delta / 1000.0f;
+	cl.time += synchronous_delta;
 	cls.realtime = curtime;
 
-	extratime = 0;
+	synchronous_delta = 0;
 #if 0
 	if (cls.frametime > (1.0f / cl_minfps->value))
 		cls.frametime = (1.0f / cl_minfps->value);
@@ -4073,7 +4306,7 @@ void CL_Synchronous_Frame (int msec)
 
 	if (cls.spamTime && cls.spamTime < cls.realtime)
 	{
-		Cbuf_AddText ("say \"" PRODUCTNAME " " VERSION " " __TIMESTAMP__ " " CPUSTRING " " BUILDSTRING " [http://r1ch.net/r1q2]\"\n");
+		Cbuf_AddText (CL_VERSION_REPLY);
 		cls.lastSpamTime = cls.realtime;
 		cls.spamTime = 0;
 	}
@@ -4115,6 +4348,12 @@ void CL_Frame (int msec)
 				render_delta,
 				misc_delta = 1000;
 
+	static qboolean was_synchronous;
+	static int previous_async = -1;
+	static qboolean finish_async_input;
+	qboolean command_sync;
+	int render_msec;
+
 	//static int inputCount = 0;
 
 	qboolean	packet_frame=true,
@@ -4132,14 +4371,38 @@ void CL_Frame (int msec)
 
 	if (dbg_framesleep->intvalue)
 		Sys_Sleep (dbg_framesleep->intvalue);
-#else
-#ifdef _WIN32
-	if (!ActiveApp && !Com_ServerState())
-		NET_Client_Sleep (100);
-#endif
 #endif
 
-	if (cl_async->intvalue != 1)
+	CL_TranslateFrame ();
+
+	command_sync = CL_AsyncCommandSync ();
+	/* Finish a mode 1 command with its original accumulator before changing
+	 * builders. Its already-consumed key fractions cannot be reconstructed. */
+	if (previous_async == 1 && command_sync)
+		finish_async_input = true;
+	if (previous_async == 2 && cl_async->intvalue != 2)
+	{
+		CL_InitCmd ();
+		if (cl_async->intvalue != 1)
+		{
+			/* Sync advances cl.time at commitment, async advances it per tick. */
+			synchronous_delta = packet_delta;
+			cl.time -= packet_delta;
+		}
+	}
+	if (!command_sync)
+		finish_async_input = false;
+	previous_async = cl_async->intvalue;
+	if (command_sync && was_synchronous)
+	{
+		/* Carry the unfinished interval; changing the renderer must not lose time. */
+		packet_delta = render_delta = synchronous_delta;
+		cl.time += synchronous_delta;
+		synchronous_delta = 0;
+		CL_InitCmd ();
+	}
+	was_synchronous = cl_async->intvalue != 1 && !command_sync;
+	if (cl_async->intvalue != 1 && !command_sync)
 	{
 		CL_Synchronous_Frame (msec);
 		return;
@@ -4165,12 +4428,15 @@ void CL_Frame (int msec)
 	// don't extrapolate too far ahead
 	if (cls.frametime > .5)
 		cls.frametime = .5;
+	if (command_sync && cls.frametime > (1.0f / 5))
+		cls.frametime = (1.0f / 5);
 
 	//jec - determine what all should be done...
 	if (!cl_timedemo->intvalue)
 	{
 		// packet transmission rate is too high
-		if (packet_delta < 1000/cl_maxfps->intvalue)
+		if (command_sync ? packet_delta < 1000 / cl_maxfps->value :
+						   packet_delta < 1000 / cl_maxfps->intvalue)
 			packet_frame = false;
 	
 		// don't need to do this stuff much.
@@ -4185,7 +4451,9 @@ void CL_Frame (int msec)
 	// don't flood packets out while connecting
 	if (cls.state == ca_connected)
 	{
-		if (packet_delta < 100)
+		if (command_sync)
+			packet_frame = cl_timedemo->intvalue || packet_delta >= 100 || send_packet_now;
+		else if (packet_delta < 100)
 			packet_frame = false;
 
 #ifdef USE_CURL
@@ -4195,9 +4463,23 @@ void CL_Frame (int msec)
 	}
 
 	//jec - update the inputs (keybd, mouse, server, etc)
-	CL_RefreshInputs ();
+	CL_TimingFrame (packet_delta, packet_frame);
+	if (command_sync && !finish_async_input)
+	{
+		/* Queue events continuously, but execute bindings/aliases only at the
+		 * command boundary, exactly as the synchronous input path does. */
+#ifdef LINUX
+		/* Linux KBD_Update also consumes renderer-owned mouse samples. */
+		sys_frame_time = Sys_Milliseconds ();
+#else
+		Sys_SendKeyEvents ();
+#endif
+		CL_ReadPackets ();
+	}
+	else
+		CL_RefreshInputs ();
 
-	if ((send_packet_now && cl_instantpacket->intvalue) || userinfo_modified)
+	if (!command_sync && ((send_packet_now && cl_instantpacket->intvalue) || userinfo_modified))
 	{
 		if (cls.state < ca_connected)
 		{
@@ -4209,14 +4491,40 @@ void CL_Frame (int msec)
 		}
 	}
 
-	send_packet_now = false;
+	CL_TimingDecision (send_packet_now, userinfo_modified);
+	if (!command_sync || packet_frame)
+		send_packet_now = false;
 
 	//jec- send commands to the server
 	//if (++inputCount >= cl_snaps->value && packet_frame)
 	if (packet_frame)
 	{
 		packet_delta = 0;
-		CL_SendCommand ();
+		if (command_sync && !finish_async_input)
+		{
+			IN_Frame ();
+			CL_SendCommand_Synchronous ();
+		}
+		else
+			CL_SendCommand ();
+		if (command_sync)
+		{
+			finish_async_input = false;
+			command_frame_time = cls.frametime;
+			/* Populate every sent command before the next packet can ACK it,
+			 * including when rendering is slower than command transmission. */
+			CL_PredictMovement ();
+		}
+		/* Zero-msec sends are ignored by the server. Mode 1 can also
+		 * retain input accumulated before a macro phase changed: wait for
+		 * a nonempty command containing the requested jump state. After
+		 * two commands the old accumulator is gone; do not block console
+		 * input indefinitely if jump is disabled or cancelled by +movedown. */
+		if (command_sync || cls.state != ca_active || (cl.cmd.msec && (command_wait_upmove < 0 || (cl.cmd.upmove >= 10) == command_wait_upmove || ++command_wait_sends >= 2)))
+		{
+			command_wait_pending = false;
+			command_wait_upmove = -1;
+		}
 		CL_LoadDeferredModels();
 
 #ifdef USE_CURL
@@ -4228,6 +4536,7 @@ void CL_Frame (int msec)
 	//jec- Render the display
 	if(render_frame)
 	{
+		render_msec = render_delta;
 		render_delta = 0;
 
 		if(misc_frame)
@@ -4238,11 +4547,7 @@ void CL_Frame (int msec)
 
 			if (cls.spamTime && cls.spamTime < cls.realtime)
 			{
-				char buff[256];
-				Com_sprintf (buff, sizeof(buff), "say \"R1Q2 %s %s %s %s [http://r1ch.net/r1q2]\"\n", VERSION,
-					__TIMESTAMP__, CPUSTRING, BUILDSTRING
-				);
-				Cbuf_AddText (buff);
+				Cbuf_AddText (CL_VERSION_REPLY);
 				cls.lastSpamTime = cls.realtime;
 				cls.spamTime = 0;
 			}
@@ -4261,6 +4566,13 @@ void CL_Frame (int msec)
 
 		// predict all unacknowledged movements
 		CL_PredictMovement ();
+		if (command_sync)
+		{
+			/* Presentation uses the rendered interval, independent of commands. */
+			cls.frametime = render_msec / 1000.0f;
+			if (cls.frametime > (1.0f / 5))
+				cls.frametime = (1.0f / 5);
+		}
 
 		//r1: run local ent physics/thinking/etc
 		if (cl_lents->intvalue)
@@ -4307,6 +4619,8 @@ void CL_Init (void)
 	for (i = svc_max_enttypes; i < 256; i++)
 		svc_strings[i] = svc_strings[0];
 
+	CL_JumpRegisterCommands ();
+
 	// all archived variables will now be loaded
 
 //	Cbuf_AddText ("exec autoexec.cfg\n");
@@ -4348,6 +4662,8 @@ void CL_Init (void)
 	CDAudio_Init ();
 #endif
 	CL_InitLocal ();
+	CL_TimingInit ();
+	CL_JumpInit ();
 	IN_Init ();
 
 	LE_Init ();
@@ -4357,6 +4673,8 @@ void CL_Init (void)
 #ifdef USE_CURL
 	CL_InitHTTPDownloads ();
 #endif
+
+	CL_TranslateInit ();
 
 	FS_ExecConfig ("postinit.cfg");
 	Cbuf_Execute ();
@@ -4382,11 +4700,17 @@ void CL_Shutdown(void)
 	}
 	isdown = true;
 
+	CL_TranslateShutdown ();
+
 #ifdef USE_CURL
 	CL_HTTP_Cleanup (true);
 #endif
 
+	CL_JumpClear ();
+	CL_JumpClearInput ();
+	CL_JumpClearDraw ();
 	CL_FreeLocs ();
+	Con_Shutdown ();
 	CL_WriteConfiguration (); 
 
 #ifdef CD_AUDIO

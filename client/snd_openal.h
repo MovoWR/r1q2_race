@@ -1,6 +1,12 @@
 #include "../qcommon/qcommon.h"
 
 #ifdef USE_OPENAL
+#ifdef _WIN32
+#include <windows.h>
+#endif
+#if defined(R1Q2_STATIC_OPENAL) && !defined(AL_LIBTYPE_STATIC)
+#define AL_LIBTYPE_STATIC
+#endif
 #include <AL/al.h>
 #include <AL/alc.h>
 
@@ -13,6 +19,13 @@
 #include "eax.h"
 
 #include "qal.h"
+
+#ifndef AL_LOOP_POINTS_SOFT
+#define AL_LOOP_POINTS_SOFT		0x2015
+#endif
+#ifndef AL_SOURCE_SPATIALIZE_SOFT
+#define AL_SOURCE_SPATIALIZE_SOFT	0x1214
+#endif
 
 #ifdef _WIN32
 #include "../win32/alw_win.h"
@@ -43,6 +56,7 @@ typedef struct sfx_s
 	qboolean			loaded;
 	int					samples;
 	int					rate;
+	int loopstart;
 	unsigned			format;
 	unsigned			bufferNum;
 #endif
@@ -56,6 +70,7 @@ typedef struct
 	int					width;
 	int					channels;
 	int					samples;
+	int loopstart;
 } wavInfo_t;
 
 typedef struct openal_sfx_s
@@ -149,9 +164,13 @@ typedef struct
 
 	qboolean			eax;
 	unsigned			eaxState;
+	ALBUFFERIV bufferiv;
+	qboolean sourceSpatialize;
 } alConfig_t;
 
 extern alConfig_t		alConfig;
+
+void S_OpenAL_SpatializeSource (unsigned source, qboolean spatialize);
 
 #ifdef _WIN32
 
@@ -163,7 +182,7 @@ extern alConfig_t		alConfig;
 #else
 #ifdef __linux__
 
-#define AL_DRIVER_OPENAL	"/usr/lib/libopenal.so"
+#define AL_DRIVER_OPENAL	"libopenal.so.1"
 
 #define ALimp_Init						AL_Init
 #define ALimp_Shutdown					AL_Shutdown

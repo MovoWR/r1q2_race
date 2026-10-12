@@ -21,6 +21,10 @@ void IN_Commands (void)
 {
 }
 
+void IN_PreviewMove (usercmd_t *cmd)
+{
+}
+
 void IN_Move (usercmd_t *cmd)
 {
 }

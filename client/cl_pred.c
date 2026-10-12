@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "client.h"
+#include "jump/jump.h"
 
 /*
 ===================
@@ -34,6 +35,14 @@ void CL_CheckPredictionError (void)
 	// calculate the last usercmd_t we sent that the server has processed
 	frame = cls.netchan.incoming_acknowledged;
 	frame &= (CMD_BACKUP-1);
+
+	/* A render need not have happened since the acknowledged send. Never
+	 * compare the snapshot with an old sequence occupying the same slot. */
+	if (CL_AsyncCommandSync () && cl.predicted_sequences[frame] != cls.netchan.incoming_acknowledged + 1)
+	{
+		VectorClear (cl.prediction_error);
+		return;
+	}
 
 	// compare what the server returned with what we had predicted it to be
 	VectorSubtract (cl.frame.playerstate.pmove.origin, cl.predicted_origins[frame], delta);
@@ -243,6 +252,65 @@ CL_PredictMovement
 Sets cl.predicted_origin and cl.predicted_angles
 =================
 */
+/* Interpolate toward one full-command forecast. A changing partial msec
+ * can choose opposite sides of a step on consecutive render frames. This
+ * forecast never enters the command ring or prediction-error history. */
+static void CL_CommandSyncView (pmove_new_t *pm, int current)
+{
+	int i, slot = (current - 1) & (CMD_BACKUP - 1);
+	float fraction, distance = 0;
+	vec3_t origin, previous;
+	pmove_new_t forecast;
+	usercmd_t *cmd = &cl.cmds[slot];
+
+	for (i = 0; i < 3; i++)
+	{
+		origin[i] = pm->s.origin[i] * 0.125f;
+		distance += fabsf (origin[i] - cl.cmdsync_view.end[i]);
+	}
+	if (!cmd->msec)
+	{
+		cl.cmdsync_view.valid = false;
+		VectorCopy (origin, cl.predicted_origin);
+		return;
+	}
+
+	if (!cl.cmdsync_view.valid || cl.cmdsync_view.sequence != current ||
+		memcmp (&cl.cmdsync_view.base, &pm->s, sizeof (pm->s)))
+	{
+		VectorCopy (origin, previous);
+		if (cl.cmdsync_view.valid && distance <= 80 &&
+			!(pm->s.pm_flags & PMF_TIME_TELEPORT))
+		{
+			fraction = (cls.realtime - cl.cmdsync_view.time) / (float)cl.cmdsync_view.msec;
+			if (fraction < 0)
+				fraction = 0;
+			if (fraction > 1)
+				fraction = 1;
+			for (i = 0; i < 3; i++)
+				previous[i] = cl.cmdsync_view.start[i] + fraction * (cl.cmdsync_view.end[i] - cl.cmdsync_view.start[i]);
+		}
+		forecast = *pm;
+		forecast.cmd = *cmd;
+		Pmove (&forecast);
+		cl.cmdsync_view.valid = true;
+		cl.cmdsync_view.sequence = current;
+		cl.cmdsync_view.time = cls.realtime;
+		cl.cmdsync_view.msec = cmd->msec;
+		cl.cmdsync_view.base = pm->s;
+		VectorCopy (previous, cl.cmdsync_view.start);
+		for (i = 0; i < 3; i++)
+			cl.cmdsync_view.end[i] = forecast.s.origin[i] * 0.125f;
+	}
+	fraction = (cls.realtime - cl.cmdsync_view.time) / (float)cl.cmdsync_view.msec;
+	if (fraction < 0)
+		fraction = 0;
+	if (fraction > 1)
+		fraction = 1;
+	for (i = 0; i < 3; i++)
+		cl.predicted_origin[i] = cl.cmdsync_view.start[i] + fraction * (cl.cmdsync_view.end[i] - cl.cmdsync_view.start[i]);
+}
+
 void CL_PredictMovement (void)
 {
 	static int	last_step_frame = 0;
@@ -253,18 +321,32 @@ void CL_PredictMovement (void)
 	pmove_new_t		pm;
 	int			step;
 	int			oldz;
+	int jump_command;
+	qboolean command_sync = CL_AsyncCommandSync ();
+	usercmd_t preview;
+	vec3_t preview_angles;
 
-	if (cls.state != ca_active)
-		return;
 
-	if (cl_paused->intvalue)
+	if (command_sync && cls.state == ca_active && !cl_paused->intvalue)
+		CL_PreviewCmd (&preview, preview_angles);
+	else
+		VectorCopy (cl.viewangles, preview_angles);
+	if (!command_sync || cls.state != ca_active || cl_paused->intvalue ||
+		!cl_predict->intvalue || (cl.frame.playerstate.pmove.pm_flags & PMF_NO_PREDICTION))
+		cl.cmdsync_view.valid = false;
+	CL_JumpResetPrediction ();
+	if (cls.state != ca_active || cl_paused->intvalue)
+	{
+		CL_JumpClear ();
 		return;
+	}
 
 	if (!cl_predict->intvalue || (cl.frame.playerstate.pmove.pm_flags & PMF_NO_PREDICTION))
 	{
-		cl.predicted_angles[0] = cl.viewangles[0] + SHORT2ANGLE(cl.frame.playerstate.pmove.delta_angles[0]);
-		cl.predicted_angles[1] = cl.viewangles[1] + SHORT2ANGLE(cl.frame.playerstate.pmove.delta_angles[1]);
-		cl.predicted_angles[2] = cl.viewangles[2] + SHORT2ANGLE(cl.frame.playerstate.pmove.delta_angles[2]);
+		CL_JumpClear ();
+		cl.predicted_angles[0] = preview_angles[0] + SHORT2ANGLE (cl.frame.playerstate.pmove.delta_angles[0]);
+		cl.predicted_angles[1] = preview_angles[1] + SHORT2ANGLE (cl.frame.playerstate.pmove.delta_angles[1]);
+		cl.predicted_angles[2] = preview_angles[2] + SHORT2ANGLE (cl.frame.playerstate.pmove.delta_angles[2]);
 		return;
 	}
 	//Com_Printf ("predicting %d...\n",rand());
@@ -277,6 +359,8 @@ void CL_PredictMovement (void)
 	{
 		if (cl_showmiss->intvalue)
 			Com_Printf ("exceeded CMD_BACKUP\n", LOG_CLIENT);
+		cl.cmdsync_view.valid = false;
+		CL_JumpClear ();
 		return;	
 	}
 
@@ -298,6 +382,13 @@ void CL_PredictMovement (void)
 	pm.s = cl.frame.playerstate.pmove;
 
 	VectorClear (pm.viewangles);
+	if (CL_AsyncCommandSync ())
+	{
+		/* An ACK can leave no commands to replay on this render frame. */
+		pm.viewangles[0] = cl.viewangles[0] + SHORT2ANGLE (pm.s.delta_angles[0]);
+		pm.viewangles[1] = cl.viewangles[1] + SHORT2ANGLE (pm.s.delta_angles[1]);
+		pm.viewangles[2] = cl.viewangles[2] + SHORT2ANGLE (pm.s.delta_angles[2]);
+	}
 
 //	SCR_DebugGraph (current - ack - 1, 0);
 
@@ -321,8 +412,9 @@ void CL_PredictMovement (void)
 
 	pm.enhanced = cl.enhancedServer;
 	pm.strafehack = cl.strafeHack;
+	jump_command = CL_JumpLastCommand (ack, current, cl_async->intvalue != 0 && !command_sync);
 
-	if (cl_async->intvalue)
+	if (cl_async->intvalue && !command_sync)
 	{
 		// run frames
 		while (++ack <= current) //jec - changed '<' to '<=' cause current is our pending cmd.
@@ -335,10 +427,13 @@ void CL_PredictMovement (void)
 
 			pm.cmd = *cmd;
 
+			CL_JumpBeginCommand (ack == jump_command);
 			Pmove (&pm);
+			CL_JumpEndCommand (&pm);
 
 			// save for debug checking
 			VectorCopy (pm.s.origin, cl.predicted_origins[frame]);
+			cl.predicted_sequences[frame] = ack + 1;
 		}
 
 		switch (cl_smoothsteps->intvalue)
@@ -384,26 +479,42 @@ void CL_PredictMovement (void)
 
 			pm.cmd = *cmd;
 
+			CL_JumpBeginCommand (ack == jump_command);
 			Pmove (&pm);
+			CL_JumpEndCommand (&pm);
 
 			// save for debug checking
 			VectorCopy (pm.s.origin, cl.predicted_origins[frame]);
+			cl.predicted_sequences[frame] = ack + 1;
 		}
 
 		oldframe = (ack-2) & (CMD_BACKUP-1);
 		oldz = cl.predicted_origins[oldframe][2];
 		step = pm.s.origin[2] - oldz;
-		if (step > 63 && step < 160 && (pm.s.pm_flags & PMF_ON_GROUND) )
+		if (!command_sync &&
+			step > 63 && step < 160 && (pm.s.pm_flags & PMF_ON_GROUND))
 		{
 			cl.predicted_step = step * 0.125f;
 			cl.predicted_step_time = cls.realtime - (int)(cls.frametime * 500);
 		}
 	}
 
+	if (command_sync)
+	{
+		/* The interpolated forecast owns step presentation in this mode. */
+		cl.predicted_step = 0;
+		pm.viewangles[0] = preview_angles[0] + SHORT2ANGLE (pm.s.delta_angles[0]);
+		pm.viewangles[1] = preview_angles[1] + SHORT2ANGLE (pm.s.delta_angles[1]);
+		pm.viewangles[2] = preview_angles[2] + SHORT2ANGLE (pm.s.delta_angles[2]);
+	}
+
 	// copy results out for rendering
 	cl.predicted_origin[0] = pm.s.origin[0]*0.125f;
 	cl.predicted_origin[1] = pm.s.origin[1]*0.125f;
 	cl.predicted_origin[2] = pm.s.origin[2]*0.125f;
+
+	if (command_sync)
+		CL_CommandSyncView (&pm, current);
 
 	FastVectorCopy (pm.viewangles, cl.predicted_angles);
 }

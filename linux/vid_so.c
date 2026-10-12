@@ -11,6 +11,9 @@
 #include <errno.h>
 
 #include "../client/client.h"
+#include "../client/jump/jump.h"
+#include "../client/ref_display.h"
+#include "../client/ref_present.h"
 
 #include "../linux/rw_linux.h"
 
@@ -50,6 +53,7 @@ void (*RW_IN_Shutdown_fp)(void);
 void (*RW_IN_Activate_fp)(qboolean active);
 void (*RW_IN_Commands_fp)(void);
 void (*RW_IN_Move_fp)(usercmd_t *cmd);
+void (*RW_IN_PreviewMove_fp) (usercmd_t *cmd);
 void (*RW_IN_Frame_fp)(void);
 
 void Real_IN_Init (void);
@@ -121,18 +125,32 @@ typedef struct vidmode_s
 	int         mode;
 } vidmode_t;
 
-vidmode_t vid_modes[] =
-{
-	{ "Mode 0: 320x240",   320, 240,   0 },
-	{ "Mode 1: 400x300",   400, 300,   1 },
-	{ "Mode 2: 512x384",   512, 384,   2 },
-	{ "Mode 3: 640x480",   640, 480,   3 },
-	{ "Mode 4: 800x600",   800, 600,   4 },
-	{ "Mode 5: 960x720",   960, 720,   5 },
-	{ "Mode 6: 1024x768",  1024, 768,  6 },
-	{ "Mode 7: 1152x864",  1152, 864,  7 },
-	{ "Mode 8: 1280x1024",  1280, 1024, 8 },
-	{ "Mode 9: 1600x1200", 1600, 1200, 9 }
+vidmode_t vid_modes[] = {
+	{ "Mode 0: 320x240", 320, 240, 0 },
+	{ "Mode 1: 400x300", 400, 300, 1 },
+	{ "Mode 2: 512x384", 512, 384, 2 },
+	{ "Mode 3: 640x480", 640, 480, 3 },
+	{ "Mode 4: 800x600", 800, 600, 4 },
+	{ "Mode 5: 960x720", 960, 720, 5 },
+	{ "Mode 6: 1024x768", 1024, 768, 6 },
+	{ "Mode 7: 1152x864", 1152, 864, 7 },
+	{ "Mode 8: 1280x1024", 1280, 1024, 8 },
+	{ "Mode 9: 1600x1200", 1600, 1200, 9 },
+	/* Append modes so existing gl_mode values retain their meaning. */
+	{ "Mode 10: 1280x720", 1280, 720, 10 },
+	{ "Mode 11: 1366x768", 1366, 768, 11 },
+	{ "Mode 12: 1600x900", 1600, 900, 12 },
+	{ "Mode 13: 1920x1080", 1920, 1080, 13 },
+	{ "Mode 14: 1920x1200", 1920, 1200, 14 },
+	{ "Mode 15: 2560x1080", 2560, 1080, 15 },
+	{ "Mode 16: 2560x1440", 2560, 1440, 16 },
+	{ "Mode 17: 2560x1600", 2560, 1600, 17 },
+	{ "Mode 18: 3440x1440", 3440, 1440, 18 },
+	{ "Mode 19: 3840x1600", 3840, 1600, 19 },
+	{ "Mode 20: 3840x2160", 3840, 2160, 20 },
+	{ "Mode 21: 5120x1440", 5120, 1440, 21 },
+	{ "Mode 22: 5120x2160", 5120, 2160, 22 },
+	{ "Mode 23: 7680x4320", 7680, 4320, 23 },
 };
 
 qboolean VID_GetModeInfo(unsigned int *width, unsigned int *height, int mode)
@@ -153,10 +171,17 @@ void VID_NewWindow ( int width, int height)
 {
 	viddef.width  = width;
 	viddef.height = height;
+	cl.force_refdef = true;
 }
 
 void VID_FreeReflib (void)
 {
+	CL_JumpClearDraw ();
+	CL_JumpDisplaySetAPI (NULL);
+	SCR_SetColorPresentation (NULL);
+	SCR_SetBeamPresentation (NULL);
+	SCR_SetRichPresentation (NULL);
+	SCR_SetPresentation (NULL);
 	if (reflib_library) {
 		if (KBD_Close_fp)
 			KBD_Close_fp();
@@ -173,6 +198,7 @@ void VID_FreeReflib (void)
 	RW_IN_Activate_fp = NULL;
 	RW_IN_Commands_fp = NULL;
 	RW_IN_Move_fp = NULL;
+	RW_IN_PreviewMove_fp = NULL;
 	RW_IN_Frame_fp = NULL;
 
 	memset (&re, 0, sizeof(re));
@@ -192,6 +218,7 @@ qboolean VID_LoadRefresh( char *name )
 
 	GetRefAPI_t		GetRefAPI;
 	GetExtraAPI_t	GetExtraAPI;
+	GetPresentationAPI_t GetPresentationAPI;
 
 	char	fn[MAX_OSPATH];
 	
@@ -311,6 +338,7 @@ qboolean VID_LoadRefresh( char *name )
 		(RW_IN_Frame_fp = dlsym(reflib_library, "RW_IN_Frame")) == NULL)
 		Sys_Error("No RW_IN functions in REF.\n");
 
+	RW_IN_PreviewMove_fp = dlsym (reflib_library, "RW_IN_PreviewMove");
 	Real_IN_Init();
 
 	if ( re.Init( 0, 0 ) == -1 )
@@ -319,6 +347,21 @@ qboolean VID_LoadRefresh( char *name )
 		VID_FreeReflib ();
 		return false;
 	}
+
+	GetPresentationAPI = (GetPresentationAPI_t)dlsym (reflib_library, "GetPresentationAPI");
+	SCR_SetPresentation (GetPresentationAPI ? GetPresentationAPI (REF_PRESENT_VERSION) : NULL);
+	SCR_SetRichPresentation (GetPresentationAPI ?
+			(const refpresent2_t *)GetPresentationAPI (REF_PRESENT_VERSION2) :
+			NULL);
+	SCR_SetBeamPresentation (GetPresentationAPI ?
+			(const refpresent3_t *)GetPresentationAPI (REF_PRESENT_VERSION3) :
+			NULL);
+	SCR_SetColorPresentation (GetPresentationAPI ?
+			(const refpresent5_t *)GetPresentationAPI (REF_PRESENT_VERSION5) :
+			NULL);
+	CL_JumpDisplaySetAPI (GetPresentationAPI ?
+			(const refdisplay_t *)GetPresentationAPI (REF_DISPLAY_VERSION) :
+			NULL);
 
 	/* Init KBD */
 #if 1
@@ -489,6 +532,12 @@ void IN_Commands (void)
 {
 	if (RW_IN_Commands_fp)
 		RW_IN_Commands_fp();
+}
+
+void IN_PreviewMove (usercmd_t *cmd)
+{
+	if (RW_IN_PreviewMove_fp)
+		RW_IN_PreviewMove_fp (cmd);
 }
 
 void IN_Move (usercmd_t *cmd)

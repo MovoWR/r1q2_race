@@ -19,6 +19,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "qcommon.h"
+#ifndef DEDICATED_ONLY
+#include "../client/jump/jump.h"
+#endif
 
 #define	STEPSIZE	18
 
@@ -397,6 +400,11 @@ static void PM_Accelerate (vec3_t wishdir, float wishspeed, float accel)
 {
 	float		addspeed, accelspeed, currentspeed;
 
+#ifndef DEDICATED_ONLY
+	CL_JumpAcceleration (pml.forward, pml.velocity, wishdir, wishspeed,
+		wishspeed, accel, pml.frametime, pm->groundentity != NULL,
+		pm->waterlevel, pml.ladder);
+#endif
 	currentspeed = DotProduct (pml.velocity, wishdir);
 	addspeed = wishspeed - currentspeed;
 
@@ -418,6 +426,11 @@ static void PM_AirAccelerate (vec3_t wishdir, float wishspeed, float accel)
 		
 	if (wishspd > 30)
 		wishspd = 30;
+#ifndef DEDICATED_ONLY
+	CL_JumpAcceleration (pml.forward, pml.velocity, wishdir, wishspeed,
+		wishspd, accel, pml.frametime, pm->groundentity != NULL,
+		pm->waterlevel, pml.ladder);
+#endif
 	currentspeed = DotProduct (pml.velocity, wishdir);
 	addspeed = wishspd - currentspeed;
 

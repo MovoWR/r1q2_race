@@ -46,12 +46,20 @@ static void AL_InitExtensions (void)
 	{
 		if (s_openal_eax->intvalue)
 		{
-			alConfig.eax = true;
-
 			qalEAXSet = (ALEAXSET)qalGetProcAddress("EAXSet");
 			qalEAXGet = (ALEAXGET)qalGetProcAddress("EAXGet");
 
-			Com_Printf("...using EAX2.0\n", LOG_CLIENT);
+			if (qalEAXSet && qalEAXGet)
+			{
+				alConfig.eax = true;
+				Com_Printf ("...using EAX2.0\n", LOG_CLIENT);
+			}
+			else
+			{
+				qalEAXSet = NULL;
+				qalEAXGet = NULL;
+				Com_Printf ("...EAX2.0 entry points not found\n", LOG_CLIENT);
+			}
 		}
 		else
 			Com_Printf("...ignoring EAX2.0\n", LOG_CLIENT);

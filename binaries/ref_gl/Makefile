@@ -1,8 +1,13 @@
 VPATH=../../ref_gl ../../linux ../../game
 
-CFLAGS+=-fPIC $(shell sdl-config --cflags)
+CORE_RENDERER ?= 1
+ifeq ($(CORE_RENDERER),1)
+CFLAGS+=-DR1Q2_GL_CORE
+endif
 
-ref_gl_SRC:=gl_draw.c gl_image.c gl_light.c gl_mesh.c gl_model.c gl_rmain.c\
+CFLAGS+=-fPIC $(shell sdl2-config --cflags)
+
+ref_gl_SRC:=gl_jump.c gl_jump_lava.c gl_jump_beams.c gl_draw.c gl_image.c gl_hqx.c gl_light.c gl_mesh.c gl_model.c gl_core.c gl_core_state.c gl_core_shader.c gl_shader.c gl_postfx.c gl_rmain.c\
 			gl_rmisc.c gl_rsurf.c gl_warp.c gl_sdl.c glob.c q_shared.c\
 			q_shlinux.c qgl_linux.c
 
@@ -17,7 +22,7 @@ TARGETS:=ref_gl.so ref_gl-combine.so
 
 include ../make.inc
 
-LDFLAGS+=$(shell sdl-config --libs) -lm -lGL -ljpeg -lpng12
+LDFLAGS+=$(shell sdl2-config --libs) -lm -lGL -ljpeg -lpng
 
 ref_gl.so: $(ref_gl_OBJ)
 	$(CC) -shared -g -o $@ $^ $(LDFLAGS)
@@ -25,6 +30,6 @@ ref_gl.so: $(ref_gl_OBJ)
 # only works with gcc >4.1
 combine: ref_gl-combine.so
 ref_gl-combine.so: $(ref_gl_SRC)
-	$(CC) $(shell sdl-config --cflags) -shared -O2 -ffloat-store -DNDEBUG -DLINUX -fPIC -fwhole-program --combine -g -o $@ $^ $(LDFLAGS)
+	$(CC) $(shell sdl2-config --cflags) -shared -O2 -ffloat-store -DNDEBUG -DLINUX -fPIC -fwhole-program --combine -g -o $@ $^ $(LDFLAGS)
 
 -include .depends/*.d

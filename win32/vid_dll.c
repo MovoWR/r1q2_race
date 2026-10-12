@@ -25,13 +25,21 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define _WIN32_WINNT 0x0400
 #include "resource.h"
 #include "..\client\client.h"
+#include "../client/jump/jump_editor.h"
+#include "../client/jump/jump.h"
+#include "../client/ref_present.h"
+#include "../client/ref_display.h"
 #include "winquake.h"
+#include "../client/vid_config.h"
 //#include "zmouse.h"
 
 // Structure containing functions exported from refresh DLL
 refexport_t	re;
 
 static HWND old_hwnd = 0;
+static RECT old_window_rect;
+static qboolean old_window_rect_valid;
+static cvar_t *vid_geometry;
 
 cvar_t *win_noalttab;
 //cvar_t *win_nopriority;
@@ -54,7 +62,13 @@ cvar_t		*vid_noexceptionhandler = &uninitialized_cvar;
 
 // Global variables used internally by this module
 viddef_t	viddef;				// global video state; used by other modules
-HINSTANCE	reflib_library;		// Handle to refresh DLL 
+HINSTANCE	reflib_library;		// Handle to refresh DLL
+#ifdef REF_HARD_LINKED
+refexport_t EXPORT GetRefAPI (refimport_t rimp);
+void EXPORT GetExtraAPI (refimportnew_t rimp);
+const refpresent_t *EXPORT GetPresentationAPI (int version);
+static qboolean reflib_builtin;
+#endif
 qboolean	reflib_active = false;
 
 HWND        cl_hwnd;            // Main window handle for life of program
@@ -88,7 +102,6 @@ static void WIN_DisableAltTab( void )
 	else
 	{
 		RegisterHotKey( 0, 0, MOD_ALT, VK_TAB );
-		RegisterHotKey( 0, 1, MOD_ALT, VK_RETURN );
 	}
 	s_alttab_disabled = true;
 }
@@ -106,7 +119,6 @@ static void WIN_EnableAltTab( void )
 		else
 		{
 			UnregisterHotKey( 0, 0 );
-			UnregisterHotKey( 0, 1 );
 		}
 
 		s_alttab_disabled = false;
@@ -308,6 +320,9 @@ void AppActivate(BOOL fActive, BOOL minimize)
 	else
 		ActiveApp = false;
 
+	CL_JumpEditorFocus (ActiveApp);
+	CL_JumpDisplayFocus (ActiveApp);
+
 	// minimize/restore mouse-capture on demand
 	if (!ActiveApp)
 	{
@@ -398,7 +413,7 @@ LRESULT CALLBACK MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		** this chunk of code theoretically only works under NT4 and Win98
 		** since this message doesn't exist under Win95
 		*/
-		if (ActiveApp && g_pMouse)
+		if (ActiveApp && g_pMouse && !CL_JumpUIActive ())
 			return TRUE;
 
 		if ( ( int16 ) HIWORD( wParam ) > 0 )
@@ -485,7 +500,7 @@ LRESULT CALLBACK MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
 	case WM_SIZE:
-		if (wParam  == SIZE_MAXIMIZED)
+		if (wParam == SIZE_MAXIMIZED && !CL_JumpDisplayBusy ())
 		{
 			if ( vid_fullscreen )
 			{
@@ -501,7 +516,7 @@ LRESULT CALLBACK MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			RECT r;
 			int		style;
 
-			if (!vid_fullscreen->intvalue)
+			if (!vid_fullscreen->intvalue && !CL_JumpDisplayBusy ())
 			{
 				xPos = (int16) LOWORD(lParam);    // horizontal position 
 				yPos = (int16) HIWORD(lParam);    // vertical position 
@@ -539,7 +554,9 @@ LRESULT CALLBACK MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		{
 			int	temp;
 
-			if (g_pMouse)
+			if (CL_JumpUIActive ())
+				CL_JumpUIMouse ((short)LOWORD (lParam), (short)HIWORD (lParam));
+			if (g_pMouse && !CL_JumpUIActive ())
 				break;
 
 			temp = 0;
@@ -579,9 +596,19 @@ LRESULT CALLBACK MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         return DefWindowProc (hWnd, uMsg, wParam, lParam);
 
+	case WM_CHAR:
+		if (CL_JumpUIChar ((int)wParam))
+			return 0;
+		break;
+
 	case WM_SYSKEYDOWN:
 		if ( wParam == 13 )
 		{
+			/* DirectInput owns this key when its keyboard is active. */
+			if (g_pKeyboard || (lParam & (1u << 30)))
+				return 0;
+			if (CL_JumpDisplayToggle ())
+				return 0;
 			if ( vid_fullscreen )
 			{
 				Com_Printf ("ALT+Enter, setting fullscreen %d.\n", LOG_CLIENT, !vid_fullscreen->intvalue);
@@ -657,27 +684,57 @@ typedef struct vidmode_s
 	int         width, height;
 } vidmode_t;
 
-vidmode_t vid_modes[] =
-{
-	{320,	240},
-	{400,	300},
-	{512,	384},
-	{640,	480},
-	{800,	600},
-	{960,	720},
-	{1024,	768},
-	{1152,	864},
-	{1280,	960},
-	{1600,	1200},
-	{2048,	1536},
-	{1280,	1024},
-	{1440,	900},
-	{1680,	1050},
-	{2560,	1920},	
+vidmode_t vid_modes[] = {
+	{ 320, 240 },
+	{ 400, 300 },
+	{ 512, 384 },
+	{ 640, 480 },
+	{ 800, 600 },
+	{ 960, 720 },
+	{ 1024, 768 },
+	{ 1152, 864 },
+	{ 1280, 960 },
+	{ 1600, 1200 },
+	{ 2048, 1536 },
+	{ 1280, 1024 },
+	{ 1440, 900 },
+	{ 1680, 1050 },
+	{ 2560, 1920 },
+	/* Append modes so existing gl_mode values retain their meaning. */
+	{ 1280, 720 },
+	{ 1366, 768 },
+	{ 1600, 900 },
+	{ 1920, 1080 },
+	{ 1920, 1200 },
+	{ 2560, 1080 },
+	{ 2560, 1440 },
+	{ 2560, 1600 },
+	{ 3440, 1440 },
+	{ 3840, 1600 },
+	{ 3840, 2160 },
+	{ 5120, 1440 },
+	{ 5120, 2160 },
+	{ 7680, 4320 },
 };
 
 qboolean EXPORT VID_GetModeInfo( unsigned int *width, unsigned int *height, int mode )
 {
+	if (mode == -2)
+	{
+		DEVMODE desktop;
+
+		memset (&desktop, 0, sizeof (desktop));
+		desktop.dmSize = sizeof (desktop);
+		if (!EnumDisplaySettings (NULL, ENUM_REGISTRY_SETTINGS, &desktop))
+			return false;
+		if (desktop.dmPelsWidth < 64 || desktop.dmPelsWidth >= 0x10000 ||
+			desktop.dmPelsHeight < 48 || desktop.dmPelsHeight >= 0x10000)
+			return false;
+		*width = desktop.dmPelsWidth;
+		*height = desktop.dmPelsHeight;
+		return true;
+	}
+
 	if ( mode < 0 || mode >= VID_NUM_MODES )
 		return false;
 
@@ -687,9 +744,90 @@ qboolean EXPORT VID_GetModeInfo( unsigned int *width, unsigned int *height, int 
 	return true;
 }
 
+/* Detect native modes without changing the historical gl_mode table. */
+static void VID_InitModeList (void)
+{
+	DEVMODE desktop, dm;
+	vid_displaymode_t *modes;
+	char *list, *out;
+	int i, j, count;
+
+	if (Cvar_Get ("vid_modelist", NULL, 0))
+		return;
+	memset (&desktop, 0, sizeof (desktop));
+	desktop.dmSize = sizeof (desktop);
+	if (!EnumDisplaySettings (NULL, ENUM_REGISTRY_SETTINGS, &desktop))
+	{
+		Cvar_Get ("vid_modelist", "desktop 640x480 1280x720 1920x1080", 0);
+		return;
+	}
+	modes = Z_TagMalloc (VID_MAX_DISPLAY_MODES * sizeof (*modes), TAGMALLOC_CVAR);
+	count = 0;
+	for (i = 0; i < VID_MAX_DISPLAY_MODES; i++)
+	{
+		memset (&dm, 0, sizeof (dm));
+		dm.dmSize = sizeof (dm);
+		if (!EnumDisplaySettings (NULL, i, &dm))
+			break;
+		if ((dm.dmFields & (DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY)) !=
+				(DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY) ||
+			dm.dmPelsWidth < 320 || dm.dmPelsWidth > 8192 ||
+			dm.dmPelsHeight < 240 || dm.dmPelsHeight > 8192 ||
+			dm.dmDisplayFrequency < 2 || dm.dmDisplayFrequency > 1000 ||
+			dm.dmBitsPerPel != desktop.dmBitsPerPel)
+			continue;
+		for (j = 0; j < count; j++)
+			if (modes[j].width == (int)dm.dmPelsWidth && modes[j].height == (int)dm.dmPelsHeight &&
+				modes[j].frequency == (int)dm.dmDisplayFrequency)
+				break;
+		if (j != count)
+			continue;
+		memset (&modes[count], 0, sizeof (modes[count]));
+		modes[count].width = dm.dmPelsWidth;
+		modes[count].height = dm.dmPelsHeight;
+		modes[count++].frequency = dm.dmDisplayFrequency;
+	}
+	qsort (modes, count, sizeof (*modes), VID_CompareDisplayModes);
+	list = Z_TagMalloc (8 + count * 32, TAGMALLOC_CVAR);
+	strcpy (list, "desktop");
+	out = list + 7;
+	for (i = 0; i < count; i++)
+		out += sprintf (out, " %dx%d@%d", modes[i].width, modes[i].height, modes[i].frequency);
+	Cvar_Get ("vid_modelist", list, 0);
+	Z_Free (list);
+	Z_Free (modes);
+}
+
 /*
 ** VID_UpdateWindowPosAndSize
 */
+static BOOL VID_AdjustWindowRect (RECT *rect, DWORD style)
+{
+	HMODULE user32 = GetModuleHandle ("user32.dll");
+	UINT (WINAPI * getWindowDpi)
+	(HWND);
+	BOOL (WINAPI * adjustRectDpi)
+	(RECT *, DWORD, BOOL, DWORD, UINT);
+	UINT dpi;
+
+	if (user32)
+	{
+		getWindowDpi = (UINT (WINAPI *) (HWND))GetProcAddress (user32, "GetDpiForWindow");
+		adjustRectDpi = (BOOL (WINAPI *) (RECT *, DWORD, BOOL, DWORD, UINT))GetProcAddress (user32, "AdjustWindowRectExForDpi");
+		if (getWindowDpi && adjustRectDpi)
+		{
+			dpi = getWindowDpi (cl_hwnd);
+			if (dpi < 96)
+				dpi = 96;
+			if (dpi > 960)
+				dpi = 960;
+			return adjustRectDpi (rect, style, FALSE,
+				(DWORD)GetWindowLongPtr (cl_hwnd, GWL_EXSTYLE), dpi);
+		}
+	}
+	return AdjustWindowRect (rect, style, FALSE);
+}
+
 void VID_UpdateWindowPosAndSize(void)
 {
 	RECT		r;
@@ -698,11 +836,15 @@ void VID_UpdateWindowPosAndSize(void)
 
 	r.left   = 0;
 	r.top    = 0;
-	r.right  = viddef.width;
-	r.bottom = viddef.height;
+	/* viddef is scaled UI space; retain the actual drawable size when moving. */
+	if (!GetClientRect (cl_hwnd, &r))
+	{
+		r.right = viddef.width;
+		r.bottom = viddef.height;
+	}
 
 	style = GetWindowLongPtr ( cl_hwnd, GWL_STYLE );
-	if (AdjustWindowRect ( &r, (DWORD)style, FALSE ))
+	if (VID_AdjustWindowRect (&r, (DWORD)style))
 	{
 		w = r.right - r.left;
 		h = r.bottom - r.top;
@@ -716,10 +858,14 @@ void VID_UpdateWindowPosAndSize(void)
 */
 void EXPORT VID_NewWindow ( int width, int height)
 {
+	RECT rect;
+	qboolean resized;
+
 	//sanity check from renderer
 	if (width >= 0x10000 || width < 64 || height >= 0x10000 || height < 48)
 		Com_Error (ERR_FATAL, "VID_NewWindow: Illegal width/height %d/%d", width, height);
 
+	resized = viddef.width != width || viddef.height != height;
 	viddef.width  = width;
 	viddef.height = height;
 
@@ -727,6 +873,27 @@ void EXPORT VID_NewWindow ( int width, int height)
 	if (old_hwnd && cl_hwnd != old_hwnd)
 		IN_Restart_f ();
 
+	/* A resize or move re-clips the mouse through the existing activation path. */
+	if (GetWindowRect (cl_hwnd, &rect))
+	{
+		if (old_hwnd && old_hwnd == cl_hwnd &&
+			(!old_window_rect_valid || !EqualRect (&rect, &old_window_rect)) &&
+			ActiveApp && !IsIconic (cl_hwnd))
+		{
+			IN_Activate (false);
+			IN_Activate (true);
+		}
+		old_window_rect = rect;
+		old_window_rect_valid = true;
+	}
+	else
+		old_window_rect_valid = false;
+
+	if (old_hwnd && old_hwnd == cl_hwnd && resized)
+	{
+		Con_CheckResize ();
+		SCR_DirtyScreen ();
+	}
 	old_hwnd = cl_hwnd;
 
 	cl.force_refdef = true;		// can't use a paused refdef
@@ -734,10 +901,19 @@ void EXPORT VID_NewWindow ( int width, int height)
 
 void VID_FreeReflib (void)
 {
-	if ( !FreeLibrary( reflib_library ) )
+	CL_JumpDisplaySetAPI (NULL);
+	CL_JumpClearDraw ();
+	SCR_SetColorPresentation (NULL);
+	SCR_SetBeamPresentation (NULL);
+	SCR_SetRichPresentation (NULL);
+	SCR_SetPresentation (NULL);
+	if (reflib_library && !FreeLibrary (reflib_library))
 		Com_Error( ERR_FATAL, "Reflib FreeLibrary failed" );
 	memset (&re, 0, sizeof(re));
 	reflib_library = NULL;
+#ifdef REF_HARD_LINKED
+	reflib_builtin = false;
+#endif
 	reflib_active  = false;
 	cl_hwnd = NULL;
 }
@@ -787,13 +963,15 @@ qboolean VID_LoadRefresh( char *name, char *errstr )
 	refimport_t		ri;
 	refimportnew_t	rx;
 	WNDCLASS		wc;
-	GetRefAPI_t		GetRefAPI;
-	GetExtraAPI_t	GetExtraAPI;
-	
+	GetRefAPI_t getRefAPI;
+	GetExtraAPI_t getExtraAPI;
+	GetPresentationAPI_t getPresentationAPI;
+
 	if ( reflib_active )
 	{
 		closing_reflib = true;
 		Com_DPrintf ("closing old reflib.\n");
+		CL_JumpDisplayClose ();
 		re.Shutdown();
 		VID_FreeReflib ();
 		closing_reflib = false;
@@ -802,17 +980,22 @@ qboolean VID_LoadRefresh( char *name, char *errstr )
 	if (!cl_quietstartup->intvalue || developer->intvalue)
 		Com_Printf( "------- Loading %s -------\n", LOG_CLIENT, name );
 
-	if ( ( reflib_library = LoadLibrary( name ) ) == 0 )
-	{
-		int lastError = GetLastError();
-		Com_Printf( "LoadLibrary(\"%s\") failed (GetLastError() = %d)\n", LOG_CLIENT, name, lastError);
+#ifdef REF_HARD_LINKED
+	/* Accept the old OpenGL setting without requiring a renderer DLL. */
+	reflib_builtin = !Q_stricmp (name, "ref_r1gl.dll") || !Q_stricmp (name, "ref_gl.dll");
+	if (!reflib_builtin)
+#endif
+		if ((reflib_library = LoadLibrary (name)) == 0)
+		{
+			int lastError = GetLastError ();
+			Com_Printf ("LoadLibrary(\"%s\") failed (GetLastError() = %d)\n", LOG_CLIENT, name, lastError);
 
-		if (lastError == 126)
-			strcpy (errstr, "file not found");
-		else
-			sprintf (errstr, "LoadLibrary() failed (%d)", lastError);
-		return false;
-	}
+			if (lastError == 126)
+				strcpy (errstr, "file not found");
+			else
+				sprintf (errstr, "LoadLibrary() failed (%d)", lastError);
+			return false;
+		}
 
 	Com_DPrintf ("reflib_library initialized.\n");
 
@@ -844,7 +1027,21 @@ qboolean VID_LoadRefresh( char *name, char *errstr )
 
 	__try
 	{
-		if ( ( GetRefAPI = (GetRefAPI_t)GetProcAddress( reflib_library, "GetRefAPI" ) ) == 0 )
+#ifdef REF_HARD_LINKED
+		if (reflib_builtin)
+		{
+			getRefAPI = GetRefAPI;
+			getExtraAPI = GetExtraAPI;
+			getPresentationAPI = GetPresentationAPI;
+		}
+		else
+#endif
+		{
+			getRefAPI = (GetRefAPI_t)GetProcAddress (reflib_library, "GetRefAPI");
+			getExtraAPI = (GetExtraAPI_t)GetProcAddress (reflib_library, "GetExtraAPI");
+			getPresentationAPI = (GetPresentationAPI_t)GetProcAddress (reflib_library, "GetPresentationAPI");
+		}
+		if (!getRefAPI)
 		{
 			VID_FreeReflib ();
 			strcpy (errstr, "GetProcAddress() failed");
@@ -854,18 +1051,18 @@ qboolean VID_LoadRefresh( char *name, char *errstr )
 
 		Com_DPrintf ("got RefAPI.\n");
 
-		if ( ( GetExtraAPI = (GetExtraAPI_t)GetProcAddress( reflib_library, "GetExtraAPI" ) ) == 0 )
+		if (!getExtraAPI)
 		{
 			Com_DPrintf ("No ExtraAPI found.\n");
 		}
 		else
 		{
 			Com_DPrintf ("Initializing ExtraAPI...");
-			GetExtraAPI (rx);
+			getExtraAPI (rx);
 			Com_DPrintf ("done.\n");
 		}
 
-		re = GetRefAPI( ri );
+		re = getRefAPI (ri);
 
 		switch (re.api_version) {
 			case 3:
@@ -892,6 +1089,7 @@ qboolean VID_LoadRefresh( char *name, char *errstr )
 		{
 			Com_DPrintf ("re.Init failed :(\n");
 			Com_DPrintf ("gl_driver: %s\n", Cvar_VariableString ("gl_driver"));
+			CL_JumpDisplayClose ();
 			re.Shutdown();
 			VID_FreeReflib ();
 			strcpy (errstr, "re.Init() failed");
@@ -928,6 +1126,19 @@ qboolean VID_LoadRefresh( char *name, char *errstr )
 
 	if (!cl_quietstartup->intvalue || developer->intvalue)
 		Com_Printf( "------------------------------------\n", LOG_CLIENT);
+	SCR_SetPresentation (getPresentationAPI ? getPresentationAPI (REF_PRESENT_VERSION) : NULL);
+	SCR_SetRichPresentation (getPresentationAPI ?
+			(const refpresent2_t *)getPresentationAPI (REF_PRESENT_VERSION2) :
+			NULL);
+	SCR_SetBeamPresentation (getPresentationAPI ?
+			(const refpresent3_t *)getPresentationAPI (REF_PRESENT_VERSION3) :
+			NULL);
+	SCR_SetColorPresentation (getPresentationAPI ?
+			(const refpresent5_t *)getPresentationAPI (REF_PRESENT_VERSION5) :
+			NULL);
+	CL_JumpDisplaySetAPI (getPresentationAPI ?
+			(const refdisplay_t *)getPresentationAPI (REF_DISPLAY_VERSION) :
+			NULL);
 	reflib_active = true;
 
 	//if (!Sys_CheckFPUStatus())
@@ -1059,7 +1270,7 @@ void VID_AltTab_Modified (cvar_t *cvar, char *old, char *newv)
 
 void VID_XY_Modified (cvar_t *cvar, char *old, char *newv)
 {
-	if (!vid_fullscreen->intvalue)
+	if (!vid_fullscreen->intvalue && !CL_JumpDisplayBusy ())
 		VID_UpdateWindowPosAndSize();
 
 	vid_xpos->modified = false;
@@ -1148,13 +1359,40 @@ void _winkey_changed (cvar_t *cvar, char *old, char *newv)
 VID_Init
 ============
 */
+static void VID_EnableDpiAwareness (void)
+{
+	HMODULE user32 = GetModuleHandle ("user32.dll");
+	BOOL (WINAPI * setDpiContext)
+	(HANDLE);
+	BOOL (WINAPI * setDpiAware)
+	(void);
+
+	if (!user32)
+		return;
+	setDpiContext = (BOOL (WINAPI *) (HANDLE))GetProcAddress (user32, "SetProcessDpiAwarenessContext");
+	if (setDpiContext && (setDpiContext ((HANDLE)-4) || setDpiContext ((HANDLE)-3)))
+		return;
+	setDpiAware = (BOOL (WINAPI *) (void))GetProcAddress (user32, "SetProcessDPIAware");
+	if (setDpiAware)
+		setDpiAware ();
+}
+
 void VID_Init (void)
 {
+	/* Newer Windows uses per-monitor awareness; older hosts retain the optional fallback. */
+	VID_EnableDpiAwareness ();
+
 	/* Create the video variables so we know how to start the graphics drivers */
+#ifdef REF_HARD_LINKED
+	vid_ref = Cvar_Get ("vid_ref", "r1gl", CVAR_ARCHIVE);
+#else
 	vid_ref = Cvar_Get ("vid_ref", "gl", CVAR_ARCHIVE);
+#endif
 	vid_xpos = Cvar_Get ("vid_xpos", "3", CVAR_ARCHIVE);
 	vid_ypos = Cvar_Get ("vid_ypos", "22", CVAR_ARCHIVE);
 	vid_fullscreen = Cvar_Get ("vid_fullscreen", "0", CVAR_ARCHIVE);
+	vid_geometry = Cvar_Get ("vid_geometry", "", CVAR_ARCHIVE);
+	VID_InitModeList ();
 	vid_gamma = Cvar_Get( "vid_gamma", "1", CVAR_ARCHIVE );
 	vid_quietload = Cvar_Get ("vid_quietload", "1", 0);
 	win_noalttab = Cvar_Get( "win_noalttab", "0", CVAR_ARCHIVE );
@@ -1219,6 +1457,7 @@ void VID_Shutdown (void)
 {
 	if ( reflib_active )
 	{
+		CL_JumpDisplayClose ();
 		re.Shutdown ();
 		VID_FreeReflib ();
 	}
@@ -1229,5 +1468,4 @@ void VID_Shutdown (void)
 		g_hKeyboardHook = NULL;
 	}
 }
-
 

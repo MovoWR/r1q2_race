@@ -64,6 +64,11 @@ typedef struct
 #define SURF_DRAWTURB		0x10
 #define SURF_DRAWBACKGROUND	0x40
 #define SURF_UNDERWATER		0x80
+#define SURF_BSPX_NODRAW	0x100 // renderer-private skip for BSPX NODRAW or fake sky
+
+#define SKY_MATERIAL_DEFAULT	0
+#define SKY_MATERIAL_CUBE	1
+#define SKY_MATERIAL_CLASSIC	2
 
 // !!! if this is changed, it must be changed in asm_draw.h too !!!
 typedef struct
@@ -79,9 +84,13 @@ typedef struct mtexinfo_s
 	int			numframes;
 	struct mtexinfo_s	*next;		// animation chain
 	image_t		*image;
+	qboolean is_lava;  // original BSP material name
+	int sky_material;  // private Q2PRO sky asset selection
+	char sky_name[32]; // original BSP texture name, lower case
+	qboolean sky_fallback_checked;
 } mtexinfo_t;
 
-#define	VERTEXSIZE	7
+#define VERTEXSIZE	8
 
 typedef struct glpoly_s
 {
@@ -89,7 +98,8 @@ typedef struct glpoly_s
 	struct	glpoly_s	*chain;
 	int		numverts;
 	int		flags;			// for SURF_UNDERWATER (not needed anymore?)
-	float	verts[4][VERTEXSIZE];	// variable sized (xyz s1t1 s2t2)
+	int vbo_firstvertex;	// private static-world offset, -1 for CPU-only polygons
+	float verts[4][VERTEXSIZE]; // variable sized (xyz s1t1 s2t2 packed RGBA)
 } glpoly_t;
 
 typedef struct msurface_s
@@ -121,7 +131,10 @@ typedef struct msurface_s
 	int			lightmaptexturenum;
 	byte		styles[MAXLIGHTMAPS];
 	float		cached_light[MAXLIGHTMAPS];	// values currently used in lightmap
+	unsigned lighting_sequence;				// private lightmap color generation
 	byte		*samples;		// [numstyles*surfsize]
+	qboolean lm_decoupled;		// BSPX or sampled N64 lightmap coordinates are in texels
+	float lm_axis[2][4];		// world xyz and lightmap offset
 } msurface_t;
 
 typedef struct mnode_s
@@ -169,7 +182,155 @@ typedef struct mleaf_s
 // Whole model
 //
 
-typedef enum {mod_bad, mod_brush, mod_sprite, mod_alias } modtype_t;
+typedef enum
+{
+	mod_bad,
+	mod_brush,
+	mod_sprite,
+	mod_alias,
+	mod_md3,
+	mod_empty
+} modtype_t;
+
+// Private CPU representation of MD3 models. Geometry is frame-major and
+// remains in the model hunk; model_t and the public renderer ABI are unchanged.
+// Match the pinned Q2PRO tessellator limits; the disk-format maxima differ.
+#define MD3_MAX_VERTICES 6144
+#define MD3_MAX_DRAW_TRIANGLES 6144
+
+typedef struct
+{
+	vec3_t mins, maxs, translate;
+	float radius;
+} mmd3frame_t;
+
+typedef struct
+{
+	short xyz[3];
+	byte normal[2]; // file order: latitude, longitude
+} mmd3vertex_t;
+
+typedef struct
+{
+	int numverts, numtris, numskins;
+	unsigned *indices; // three indices per triangle
+	float (*st)[2];
+	mmd3vertex_t *vertices; // [frame * numverts + vertex]
+	struct image_s **skins;
+	unsigned gpu_buffer, gpu_vertex_array, gpu_bytes;
+	qboolean gpu_failed;
+} mmd3mesh_t;
+
+typedef struct
+{
+	int numframes, nummeshes;
+	mmd3frame_t *frames;
+	mmd3mesh_t *meshes;
+} mmd3model_t;
+
+/* Private CPU MD5 replacement attached to an ordinary MD2 or MD3 model. */
+#define MD5_MAX_JOINTS 256
+#define MD5_MAX_MESHES 32
+#define MD5_MAX_WEIGHTS 8192
+#define MD5_MAX_FRAMES 1024
+#define MD5_MAX_VERTICES 6144
+#define MD5_MAX_TRIANGLES 6144
+
+typedef struct
+{
+	vec3_t pos;
+	float scale;
+	float orient[4];
+} mmd5joint_t;
+
+typedef struct
+{
+	float st[2];
+	vec3_t normal; /* weighted bind-pose normal in joint-local space */
+	unsigned short start, count;
+} mmd5vertex_t;
+
+typedef struct
+{
+	vec3_t pos;
+	float bias;
+	unsigned char joint;
+} mmd5weight_t;
+
+typedef struct
+{
+	int numverts, numtris, numweights;
+	mmd5vertex_t *vertices;
+	unsigned short *indices;
+	mmd5weight_t *weights;
+	unsigned gpu_buffer, gpu_weights, gpu_joints;
+	unsigned gpu_weight_texture, gpu_joint_texture, gpu_vertex_array;
+	unsigned gpu_bytes;
+	qboolean gpu_failed, gpu_tbo_failed;
+} mmd5mesh_t;
+
+typedef struct
+{
+	float position_radius;
+	float scaled_weight_radius;
+} mmd5framebound_t;
+
+typedef struct
+{
+	int numframes, numjoints, nummeshes, numskins;
+	mmd5joint_t *frames; /* [frame * numjoints + joint] */
+	mmd5mesh_t *meshes;
+	struct image_s **skins;	  /* shared by every mesh */
+	mmd5framebound_t *bounds; /* optional [frame], NULL disables culling */
+} mmd5model_t;
+
+// Private indexed MD2 topology; engine entity/model handles retain their ABI.
+#define ALIAS_MESH_MAX_VERTICES (MAX_TRIANGLES * 3)
+#define ALIAS_MESH_MAX_INDICES (MAX_TRIANGLES * 3)
+
+typedef struct
+{
+	int index_xyz;
+	float st[2];
+} maliasvertex_t;
+
+typedef struct
+{
+	unsigned numverts, numindices, bytes;
+	maliasvertex_t *vertices;
+	GLuint *indices;
+	GLuint gpu_buffer, gpu_vertex_array;
+	unsigned gpu_bytes;
+	qboolean gpu_failed;
+} maliasmesh_t;
+
+/* Renderer-owned, decoded BSPX LIGHTGRID_OCTREE data. */
+typedef struct
+{
+	uint32 point[3];
+	uint32 children[8];
+} rlightgrid_node_t;
+
+typedef struct
+{
+	uint32 mins[3], size[3];
+	uint32 firstsample, numsamples;
+} rlightgrid_leaf_t;
+
+typedef struct
+{
+	byte style, rgb[3];
+} rlightgrid_sample_t;
+
+typedef struct
+{
+	float scale[3], mins[3];
+	uint32 size[3], rootnode, numnodes, numleafs, numsamples;
+	unsigned numstyles;
+	rlightgrid_node_t *nodes;
+	rlightgrid_leaf_t *leafs;
+	rlightgrid_sample_t *samples;
+} rlightgrid_t;
 
 typedef struct model_s
 {
@@ -198,6 +359,7 @@ typedef struct model_s
 // brush model
 //
 	int			firstmodelsurface, nummodelsurfaces;
+	qboolean has_bspx;			// private inline-model sky gate
 	int			lightmap;		// only for submodels
 
 	int			numsubmodels;
@@ -234,12 +396,17 @@ typedef struct model_s
 	dvis_t		*vis;
 
 	byte		*lightdata;
+	rlightgrid_t *lightgrid; // optional heap-owned world light samples
 
 	// for alias models and skins
 	image_t		*skins[MAX_MD2SKINS];
 
 	int			extradatasize;
 	void		*extradata;
+	float *shadow_radii;	 // Hunk-owned base-frame radii; -1 means unavailable
+	maliasmesh_t *aliasmesh; // optional CPU topology, freed before the model hunk
+	mmd3model_t *md3;		 // private Hunk-owned MD3 payload
+	mmd5model_t *md5;		 // optional heap-owned MD5 replacement
 	struct model_s	*hash_next;
 } model_t;
 
@@ -254,3 +421,5 @@ byte	*Mod_ClusterPVS (int cluster, model_t *model);
 void	Mod_Modellist_f (void);
 void	Mod_FreeAll (void);
 void	Mod_Free (model_t *mod);
+const rlightgrid_sample_t *Mod_LookupLightgrid (const rlightgrid_t *grid,
+	const uint32 point[3]);

@@ -33,6 +33,118 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
   */
 
 #include "client.h"
+#include "jump/jump.h"
+#include "jump/jump_layout.h"
+#include "ref_present.h"
+
+const refpresent2_t *scr_rich_presentation;
+const refpresent5_t *scr_color_presentation;
+
+void SCR_SetColorPresentation (const refpresent5_t *api)
+{
+	scr_color_presentation = NULL;
+	if (api && api->version == REF_PRESENT_VERSION5 && api->size >= (int)sizeof (*api) &&
+		api->UpdateColorFrame && api->DrawColorFrame)
+		scr_color_presentation = api;
+}
+
+void SCR_SetRichPresentation (const refpresent2_t *api)
+{
+	scr_rich_presentation = NULL;
+	if (api && api->version == REF_PRESENT_VERSION2 && api->size >= sizeof (*api) &&
+		api->Begin && api->End && api->Glyph && api->Pic && api->Fill && api->Clip && api->Color8)
+		scr_rich_presentation = api;
+}
+
+vrect_t scr_vrect; // position of render window on screen
+const refpresent_t *scr_presentation;
+static cvar_t *scr_scale, *con_scale, *scr_font, *con_font;
+static float scr_ui_factor = 1;
+
+void SCR_SetPresentation (const refpresent_t *api)
+{
+	scr_presentation = NULL;
+	scr_ui_factor = 1;
+	if (api && api->version == REF_PRESENT_VERSION && api->size >= sizeof (*api) &&
+		api->GetSize && api->SetSpace && api->DrawColorPic)
+		scr_presentation = api;
+	else if (api)
+		Com_Printf ("Unsupported presentation API; using global HUD scale.\n", LOG_CLIENT);
+	Con_CheckResize ();
+}
+
+int SCR_ConsoleWidth (void)
+{
+	int width = viddef.width, height;
+	if (scr_presentation && con_scale)
+		scr_presentation->GetSize (con_scale->value, &width, &height);
+	return width;
+}
+
+void SCR_BeginPresentation (present_scope_t *saved, int space)
+{
+	cvar_t *scale, *font;
+	int width, height, unused_width, unused_height;
+	float base, selected;
+
+	saved->width = viddef.width;
+	saved->height = viddef.height;
+	saved->x = scr_vrect.x;
+	saved->y = scr_vrect.y;
+	saved->vwidth = scr_vrect.width;
+	saved->vheight = scr_vrect.height;
+	saved->factor = scr_ui_factor;
+	if (!scr_presentation)
+		return;
+	scale = space == PRESENT_CONSOLE ? con_scale : scr_scale;
+	font = space == PRESENT_CONSOLE ? con_font : scr_font;
+	if (!scale || !font)
+		return;
+	base = scr_presentation->GetSize (-1, &unused_width, &unused_height);
+	selected = scr_presentation->GetSize (scale->value, &width, &height);
+	if (!(base >= 1 && base <= 1024 && selected >= 1 && selected <= 1024) ||
+		width < 64 || width > 0xfff8 || height < 48 || height > 0xfffe)
+		return;
+	scr_ui_factor = selected / base;
+	viddef.width = width;
+	viddef.height = height;
+	scr_vrect.x = (int)(saved->x / scr_ui_factor);
+	scr_vrect.y = (int)(saved->y / scr_ui_factor);
+	scr_vrect.width = (int)(saved->vwidth / scr_ui_factor);
+	scr_vrect.height = (int)(saved->vheight / scr_ui_factor);
+	scr_presentation->SetSpace (space, scale->value, font->string);
+}
+
+void SCR_EndPresentation (const present_scope_t *saved)
+{
+	viddef.width = saved->width;
+	viddef.height = saved->height;
+	scr_vrect.x = saved->x;
+	scr_vrect.y = saved->y;
+	scr_vrect.width = saved->vwidth;
+	scr_vrect.height = saved->vheight;
+	scr_ui_factor = saved->factor;
+	if (scr_presentation)
+		scr_presentation->SetSpace (PRESENT_BASE, -1, NULL);
+}
+
+static void SCR_ScaleChanged (cvar_t *self, char *old, char *value)
+{
+	float scale = self->value;
+	if (!(scale >= -1 && scale <= 10) || (scale < 0 && scale != -1))
+	{
+		Com_Printf ("%s must be -1 (global), 0 (automatic), or 1..10.\n", LOG_CLIENT, self->name);
+		Cvar_SetValue (self->name, 0);
+		return;
+	}
+	if (scale > 0 && scale < 1)
+	{
+		Cvar_SetValue (self->name, 1);
+		return;
+	}
+	Con_CheckResize ();
+}
+
 
 float		scr_con_current;	// aproaches scr_conlines at scr_conspeed
 float		scr_conlines;		// 0.0 to 1.0 lines of console to display
@@ -41,7 +153,6 @@ qboolean	scr_initialized;		// ready to draw
 
 int			scr_draw_loading;
 
-vrect_t		scr_vrect;		// position of render window on screen
 
 
 cvar_t		*scr_viewsize;
@@ -640,6 +751,8 @@ void SCR_Conheight_Changed (cvar_t *self, char *old, char *newValue)
 		//Com_Printf ("scr_conheight ranges from 0 to 1\n", LOG_CLIENT);
 		Cvar_ForceSet ("scr_conheight", "0");
 	}
+	if (Cvar_FindVar ("con_height") && Cvar_VariableValue ("con_height") != self->value)
+		Cvar_ForceSet ("con_height", self->string);
 }
 
 static void _viewsize_changed (cvar_t *self, char *oldValue, char *newValue)
@@ -658,6 +771,13 @@ SCR_Init
 */
 void SCR_Init (void)
 {
+	scr_scale = Cvar_Get ("scr_scale", "0", CVAR_ARCHIVE);
+	con_scale = Cvar_Get ("con_scale", "0", CVAR_ARCHIVE);
+	scr_font = Cvar_Get ("scr_font", "conchars", CVAR_ARCHIVE);
+	con_font = Cvar_Get ("con_font", "conchars", CVAR_ARCHIVE);
+	scr_scale->changed = con_scale->changed = SCR_ScaleChanged;
+	SCR_ScaleChanged (scr_scale, scr_scale->string, scr_scale->string);
+	SCR_ScaleChanged (con_scale, con_scale->string, con_scale->string);
 	scr_viewsize = Cvar_Get ("viewsize", "100", CVAR_ARCHIVE);
 	scr_conspeed = Cvar_Get ("scr_conspeed", "3", 0);
 	scr_conheight = Cvar_Get ("scr_conheight", "0.5", 0);
@@ -913,6 +1033,8 @@ void SCR_TimeRefresh_f (void)
 	if (Cmd_Argc() == 2)
 	{	// run without page flipping
 		re.BeginFrame( 0 );
+		CL_JumpLayoutPrepare ();
+		HUD_LayoutFrame ();
 		for (i=0 ; i<128 ; i++)
 		{
 			cl.refdef.viewangles[1] = i/128.0f*360.0f;
@@ -927,6 +1049,8 @@ void SCR_TimeRefresh_f (void)
 			cl.refdef.viewangles[1] = i/128.0f*360.0f;
 
 			re.BeginFrame( 0 );
+			CL_JumpLayoutPrepare ();
+			HUD_LayoutFrame ();
 			re.RenderFrame (&cl.refdef);
 			re.EndFrame();
 		}
@@ -935,10 +1059,10 @@ void SCR_TimeRefresh_f (void)
 	stop = Sys_Milliseconds ();
 	time = (unsigned)(stop-start)/1000.0f;
 
-	if (Cmd_Argc() == 2)
-		Com_Printf ("%f seconds (%f fps)\n", LOG_CLIENT, time, 128000/time);
+	if (time > 0)
+		Com_Printf ("%f seconds (%f fps)\n", LOG_CLIENT, time, 128 / time);
 	else
-		Com_Printf ("%f seconds (%f fps)\n", LOG_CLIENT, time, 128/time);
+		Com_Printf ("%f seconds (fps unavailable)\n", LOG_CLIENT, time);
 }
 
 /*
@@ -948,6 +1072,21 @@ SCR_AddDirtyPoint
 */
 void SCR_AddDirtyPoint (int x, int y)
 {
+	if (scr_ui_factor != 1)
+	{
+		int width, height, extra = (int)ceil (scr_ui_factor);
+		double px = x * (double)scr_ui_factor, py = y * (double)scr_ui_factor;
+		scr_presentation->GetSize (-1, &width, &height);
+		x = px < 0 ? 0 : px >= width ? width - 1 :
+									   (int)floor (px);
+		y = py < 0 ? 0 : py >= height ? height - 1 :
+										(int)floor (py);
+		/* Include the full scaled logical pixel, clipped to the base screen. */
+		if (x + extra > scr_dirty.x2)
+			scr_dirty.x2 = x + extra < width ? x + extra : width - 1;
+		if (y + extra > scr_dirty.y2)
+			scr_dirty.y2 = y + extra < height ? y + extra : height - 1;
+	}
 	if (x < scr_dirty.x1)
 		scr_dirty.x1 = x;
 	if (x > scr_dirty.x2)
@@ -1240,6 +1379,9 @@ void SCR_ExecuteLayoutString (char *s)
 	int				width;
 	int				index;
 	clientinfo_t	*ci;
+	char *layout = s;
+	qboolean grouped;
+	int group = -1, next_group;
 
 	if (cls.state != ca_active || !cl.refresh_prepped)
 		return;
@@ -1250,9 +1392,21 @@ void SCR_ExecuteLayoutString (char *s)
 	x = 0;
 	y = 0;
 	width = 3;
+	grouped = CL_JumpEnabled () && s == cl.configstrings[CS_STATUSBAR] && HUD_LayoutMatch (s);
+	if (grouped)
+		CL_JumpLayoutNativeBegin (-1);
 
 	while (s)
 	{
+		if (grouped)
+		{
+			next_group = HUD_LayoutToken (layout, s);
+			if (next_group != group)
+			{
+				HUD_LayoutBegin (next_group);
+				group = next_group;
+			}
+		}
 		token = COM_Parse (&s);
 
 		//r1: rewrote how this is parsed to minimize use of redundant strcmps
@@ -1554,6 +1708,8 @@ void SCR_ExecuteLayoutString (char *s)
 				}
 		}
 	}
+	if (grouped)
+		CL_JumpLayoutNativeEnd ();
 }
 
 
@@ -1598,6 +1754,7 @@ text to the screen.
 */
 void SCR_UpdateScreen (void)
 {
+	present_scope_t hud;
 #ifdef CL_STEREO_SUPPORT
 	int i;
 	int numframes;
@@ -1650,6 +1807,8 @@ void SCR_UpdateScreen (void)
 #else
 		re.BeginFrame( 0 );
 #endif
+		CL_JumpLayoutPrepare ();
+		HUD_LayoutFrame ();
 
 		//r1: only update console during load
 		if (!cl.refresh_prepped)
@@ -1734,23 +1893,51 @@ void SCR_UpdateScreen (void)
 				SCR_DebugGraph (cls.frametime*300, (int)(cls.frametime*300));
 
 			if (scr_debuggraph->intvalue || scr_timegraph->intvalue || scr_netgraph->intvalue || scr_sizegraph->intvalue)
+			{
+				CL_JumpLayoutNativeBegin (HL_DEBUGGRAPH);
 				SCR_DrawDebugGraph ();
+				CL_JumpLayoutNativeEnd ();
+			}
 
+			SCR_BeginPresentation (&hud, PRESENT_HUD);
 			SCR_DrawStats ();
 			if (cl.frame.playerstate.stats[STAT_LAYOUTS] & 1)
+			{
+				if (CL_JumpLayoutCustomized (HL_SCOREBOARD))
+					CL_JumpLayoutNativeBegin (HL_SCOREBOARD);
 				SCR_DrawLayout ();
+				CL_JumpLayoutNativeEnd ();
+			}
 			if (cl.frame.playerstate.stats[STAT_LAYOUTS] & 2)
+			{
+				CL_JumpLayoutNativeBegin (HL_INVENTORY);
 				CL_DrawInventory ();
+				CL_JumpLayoutNativeEnd ();
+			}
 
+			CL_JumpLayoutNativeBegin (HL_NETICON);
 			SCR_DrawNet ();
+			CL_JumpLayoutNativeEnd ();
+			CL_JumpLayoutNativeBegin (HL_CENTER);
 			SCR_CheckDrawCenterString ();
+			CL_JumpLayoutNativeEnd ();
 
+			CL_JumpLayoutNativeBegin (HL_PAUSE);
 			SCR_DrawPause ();
+			CL_JumpLayoutNativeEnd ();
+			SCR_EndPresentation (&hud);
+			CL_JumpDrawHUD ();
 
 			SCR_DrawConsole ();
 
 			if (scr_chathud->intvalue)
+			{
+				SCR_BeginPresentation (&hud, PRESENT_HUD);
+				CL_JumpLayoutNativeBegin (HL_CHAT);
 				SCR_DrawChatHud ();
+				CL_JumpLayoutNativeEnd ();
+				SCR_EndPresentation (&hud);
+			}
 
 			M_Draw ();
 

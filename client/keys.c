@@ -18,6 +18,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 #include "client.h"
+#include "jump/jump.h"
+#include "jump/jump_editor.h"
+#include "jump/jump_display.h"
 
 /*
 
@@ -38,6 +41,7 @@ char		*keybindings[256];
 qboolean	consolekeys[256];	// if true, can't be rebound while in console
 qboolean	menubound[256];	// if true, can't be rebound while in menu
 qboolean	buttondown[256];
+static qboolean jumpmenudown[256];
 int			keyshift[256];		// key to map to if shift held down in console
 int			key_repeats[256];	// if > 1, it is autorepeating
 int			keydown[256];
@@ -415,7 +419,7 @@ Key_Console
 Interactive line editing and console scrollback
 ====================
 */
-void Key_Console (int key)
+static void Key_ConsoleLegacy (int key)
 {
 
 	switch ( key )
@@ -734,6 +738,16 @@ void Key_Console (int key)
 	}
 }
 
+void Key_ConsoleCompleteLegacy (void)
+{
+	Key_ConsoleLegacy (K_TAB);
+}
+
+void Key_Console (int key)
+{
+	Con_KeyEvent (key);
+}
+
 //============================================================================
 
 char		chat_custom_cmd[32];
@@ -747,148 +761,7 @@ int			chat_editbuffer = 0;
 
 void Key_Message (int key)
 {
-	char	last;
-
-	if ( key == K_ENTER || key == K_KP_ENTER )
-	{
-		switch (chat_mode)
-		{
-		case CHAT_MODE_PUBLIC:
-			Cbuf_AddText ("say \"");
-			break;
-		case CHAT_MODE_TEAM:
-			Cbuf_AddText ("say_team \"");
-			break;
-		case CHAT_MODE_CUSTOM:
-			Cbuf_AddText (chat_custom_cmd);
-			Cbuf_AddText (" \"");
-			break;
-		default:
-			Com_Error (ERR_DROP, "Bad chat_mode");
-			break;
-		}
-		Cbuf_AddText(chat_buffer[chat_curbuffer]);
-		Cbuf_AddText("\"\n");
-
-		cls.key_dest = key_game;
-
-		chat_curbuffer = (chat_curbuffer + 1) & 7;
-		chat_editbuffer = chat_curbuffer;
-
-		chat_bufferlen = 0;
-		chat_buffer[chat_curbuffer][0] = 0;
-		chat_cursorpos = 0;
-		return;
-	}
-
-	if (key == K_UPARROW)
-	{
-		chat_curbuffer--;
-		if (chat_curbuffer < 0)
-			chat_curbuffer = 7;
-
-		//ugly :E
-		if (chat_curbuffer == chat_editbuffer)
-		{
-			chat_curbuffer++;
-			if (chat_curbuffer > 7)
-				chat_curbuffer = 0;
-		}
-
-		chat_bufferlen = chat_cursorpos = (int)strlen(chat_buffer[chat_curbuffer]);
-		return;
-	}
-
-	if (key == K_DOWNARROW)
-	{
-		if (chat_curbuffer == chat_editbuffer)
-			return;
-
-		chat_curbuffer++;
-		if (chat_curbuffer > 7)
-			chat_curbuffer = 0;
-
-		chat_bufferlen = chat_cursorpos = (int)strlen(chat_buffer[chat_curbuffer]);
-		return;
-	}
-
-	if (key == K_ESCAPE)
-	{
-		cls.key_dest = key_game;
-		chat_cursorpos = 0;
-		chat_bufferlen = 0;
-		chat_buffer[chat_curbuffer][0] = 0;
-		return;
-	}
-
-	if (key == K_BACKSPACE)
-	{
-		if (chat_cursorpos)
-		{
-			//chat_bufferlen--;
-			//chat_buffer[chat_bufferlen] = 0;
-			memmove (chat_buffer[chat_curbuffer] + chat_cursorpos - 1, chat_buffer[chat_curbuffer] + chat_cursorpos, chat_bufferlen - chat_cursorpos + 1);
-			chat_cursorpos--;
-			chat_bufferlen--;
-		}
-		return;
-	}
-
-	if (key == K_DEL)
-	{
-		if (chat_bufferlen && chat_cursorpos != chat_bufferlen)
-		{
-			memmove (chat_buffer[chat_curbuffer] + chat_cursorpos, chat_buffer[chat_curbuffer] + chat_cursorpos + 1, chat_bufferlen - chat_cursorpos + 1);
-			chat_bufferlen--;
-		}
-		return;
-	}
-
-	if (key == K_LEFTARROW)
-	{
-		if (chat_cursorpos > 0)
-			chat_cursorpos--;
-		return;
-	}
-
-	if (key == K_HOME)
-	{
-		chat_cursorpos = 0;
-		return;
-	}
-
-	if (key == K_END)
-	{
-		chat_cursorpos = chat_bufferlen;
-		return;
-	}
-
-	if (key == K_RIGHTARROW)
-	{
-		if (chat_buffer[chat_curbuffer][chat_cursorpos])
-			chat_cursorpos++;
-		return;
-	}
-
-	if (key < 32 || key > 127)
-		return;	// non printable
-
-	if (chat_bufferlen == sizeof(chat_buffer[chat_curbuffer])-1)
-		return; // all full
-
-	memmove (chat_buffer[chat_curbuffer] + chat_cursorpos + 1, chat_buffer[chat_curbuffer] + chat_cursorpos, chat_bufferlen - chat_cursorpos + 1);
-
-	last = chat_buffer[chat_curbuffer][chat_cursorpos];
-
-	chat_buffer[chat_curbuffer][chat_cursorpos] = key;
-
-	chat_bufferlen++;
-	chat_cursorpos++;
-
-	if (!last)
-	{
-		chat_buffer[chat_curbuffer][chat_cursorpos] = 0;
-	}
+	Con_MessageKeyEvent (key);
 }
 
 //============================================================================
@@ -1143,6 +1016,7 @@ void Key_Init (void)
 	consolekeys[K_KP_MINUS] = true;
 	consolekeys[K_KP_5] = true;
 
+	consolekeys[K_MWHEELUP] = consolekeys[K_MWHEELDOWN] = consolekeys[K_MOUSE3] = true;
 	consolekeys['`'] = true;
 	consolekeys['~'] = true;
 	consolekeys[K_DEL] = true;
@@ -1185,7 +1059,7 @@ void Key_Init (void)
 	Cmd_AddCommand ("unbindall",Key_Unbindall_f);
 	Cmd_AddCommand ("bindlist",Key_Bindlist_f);
 
-	cl_cmdcomplete = Cvar_Get ("cl_cmdcomplete", "0", 0);
+	cl_cmdcomplete = Cvar_Get ("cl_cmdcomplete", "3", 0);
 }
 
 void Key_GenerateRepeats (void)
@@ -1213,6 +1087,47 @@ Called by the system between frames for both key up and key down events
 Should NOT be called during an interrupt!
 ===================
 */
+/* Frozen Jump shortcuts use native server-command routing. Releases remain
+ * consumed across focus changes, so a shortcut cannot start a +/- binding. */
+static qboolean Key_JumpMenuEvent (int key, qboolean down)
+{
+	const char *command;
+
+	if (key < 0 || key >= 256)
+		return false;
+	if (jumpmenudown[key])
+	{
+		if (!down)
+			jumpmenudown[key] = false;
+		return true;
+	}
+	if (!CL_JumpEnabled () || !down || key_repeats[key] != 1 ||
+		cls.key_dest != key_game || cls.state != ca_active || cl.attractloop ||
+		Q_stricmp (Cvar_VariableString ("game"), "jump") || !keydown[K_CTRL] ||
+		keydown[K_ALT] || keydown[K_SHIFT])
+		return false;
+	switch (key)
+	{
+	case 'm':
+		command = "cmd inven\n";
+		break;
+	case K_UPARROW:
+		command = "cmd invprev\n";
+		break;
+	case K_DOWNARROW:
+		command = "cmd invnext\n";
+		break;
+	case K_ENTER:
+		command = "cmd invuse\n";
+		break;
+	default:
+		return false;
+	}
+	jumpmenudown[key] = true;
+	Cbuf_AddText (command);
+	return true;
+}
+
 void Key_Event (int key, qboolean down, uint32 time)
 {
 	char		*kb;
@@ -1232,13 +1147,7 @@ void Key_Event (int key, qboolean down, uint32 time)
 	if (down)
 	{
 		key_repeats[key]++;
-		if (cls.key_dest != key_console && key != K_BACKSPACE && key != K_DEL && key != K_LEFTARROW && key != K_RIGHTARROW
-			&& key != K_PAUSE 
-			&& key != K_PGUP 
-			&& key != K_KP_PGUP 
-			&& key != K_PGDN
-			&& key != K_KP_PGDN
-			&& key_repeats[key] > 1)
+		if (cls.key_dest != key_console && key != K_BACKSPACE && key != K_DEL && key != K_LEFTARROW && key != K_RIGHTARROW && key != K_PAUSE && key != K_PGUP && key != K_KP_PGUP && key != K_PGDN && key != K_KP_PGDN && key_repeats[key] > 1 && !CL_JumpUIActive ())
 			return;	// ignore most autorepeats
 			
 		if (key >= 200 && !keybindings[key])
@@ -1249,13 +1158,16 @@ void Key_Event (int key, qboolean down, uint32 time)
 		key_repeats[key] = 0;
 	}
 
-	//for dinput
+	// DirectInput keyboard events do not use the Win32 window-message shortcut.
 	if (down && keydown[K_ALT])
 	{
 		if (key == K_ENTER)
 		{
-			Com_Printf ("ALT+Enter, setting fullscreen %d.\n", LOG_CLIENT, !vid_fullscreen->intvalue);
-			Cvar_SetValue( "vid_fullscreen", (float)!vid_fullscreen->intvalue );
+			if (key_repeats[key] == 1 && !CL_JumpDisplayToggle ())
+			{
+				Com_Printf ("ALT+Enter, setting fullscreen %d.\n", LOG_CLIENT, !vid_fullscreen->intvalue);
+				Cvar_SetValue ("vid_fullscreen", (float)!vid_fullscreen->intvalue);
+			}
 			return;
 		}
 		else if (key == K_TAB)
@@ -1285,6 +1197,8 @@ void Key_Event (int key, qboolean down, uint32 time)
 	// menu key is hardcoded, so the user can never unbind it
 	if (key == K_ESCAPE)
 	{
+		if (CL_JumpUIKey (key, down))
+			return;
 		if (!down)
 			return;
 
@@ -1330,13 +1244,19 @@ void Key_Event (int key, qboolean down, uint32 time)
 			anykeydown = 0;
 	}
 
-//
-// key up events only generate commands if the game key binding is
-// a button command (leading + sign).  These will occur even in console mode,
-// to keep the character from continuing an action started before a console
-// switch.  Button commands include the kenum as a parameter, so multiple
-// downs can be matched with ups
-//
+	if (CL_JumpUIKey (key, down))
+		return;
+
+	if (Key_JumpMenuEvent (key, down))
+		return;
+
+	//
+	// key up events only generate commands if the game key binding is
+	// a button command (leading + sign).  These will occur even in console mode,
+	// to keep the character from continuing an action started before a console
+	// switch.  Button commands include the kenum as a parameter, so multiple
+	// downs can be matched with ups
+	//
 	if (!down)
 	{
 		//r1ch: only generate -events if key was down (prevents -binds in menu / messagemode)
@@ -1433,6 +1353,8 @@ void Key_ClearStates (void)
 		key_repeats[i] = 0;
 		key_lastrepeat[i] = 0;
 	}
+	memset (jumpmenudown, 0, sizeof (jumpmenudown));
+	CL_JumpClearInput ();
 }
 
 
@@ -1450,4 +1372,3 @@ Key_GetKey
 
 	return key_waiting;
 }*/
-
