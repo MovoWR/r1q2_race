@@ -1,55 +1,95 @@
 # r1q2_race
 
-A Quake II client based on [R1Q2](https://github.com/tastyspleen/r1q2-archive),
-with race and jump features adapted from Q2PRO Race: HUD editing, strafe and
-speed overlays, network diagnostics, and a server browser.
+A Quake II client based on R1Q2, with jump and race features adapted from
+Q2PRO Race.
 
-Quake II and Jump assets are supplied separately. The default game is `jump`;
-use `+set game baseq2` for the original game.
+## Features
 
-Movement prediction uses `cl_async 2` by default.
-On Windows, set `m_rawinput 1` to enable Raw Input mouse movement.
-`gl_zfar 0` sizes the far clip distance to the map; positive values override it.
+- Strafe helper, speedometer, and acceleration efficiency display.
+- HUD layout editor, input display, and network graphs.
+- FPS presets and jump bindings.
+- Server browser with favorites, player lists, and ping.
+- DM2 demo browser and playback.
+- Widescreen support, borderless fullscreen, and Windows Raw Input.
+- Console completion and persistent command history.
 
-Music and translation controls appear when their build dependencies are enabled.
-Online server lists require Windows; Unix supports favorites, local lists, and LAN.
+Music playback, replacement cinematics, OpenAL audio, and online chat translation
+are available when included in the build. Translation is disabled by default.
 
-## Build
+## Installation
 
-Windows x86 requires Visual Studio with C++ support, CMake 3.24+, and Python 3.10+.
+The standalone Windows client requires an existing Quake II installation with
+original game data. Jump maps and other game assets are supplied separately.
+
+1. Copy `r1q2_race.exe` into your Quake II directory, beside `baseq2/`.
+2. Copy the package's `jump/` folder into the same directory, merging it with
+   an existing `jump/` folder if present.
+3. Launch `r1q2_race.exe`. Jump is selected by default.
+
+The Windows package includes the renderer; no separate R1GL download is needed.
+A local Jump game DLL is not required to join a remote server.
+
+## Playing
+
+Open **Multiplayer > browse jump servers**, or enter `connect ADDRESS:PORT`
+in the console with the server's address. The browser also supports favorites
+through **Multiplayer > browse address book**.
+
+| Setting | Menu |
+| --- | --- |
+| HUD and movement overlays | Options > jump settings |
+| HUD layout | Options > jump settings > Edit HUD Layout |
+| FPS and jump bindings | Options > jump settings > Controls & FPS |
+| Mouse and key bindings | Options > input setup / key bindings |
+| Display and graphics | Options > video setup |
+| Recorded demos | Multiplayer > browse demos |
+
+During a game, press **Escape > HUD & Jump Settings** to access the Jump controls.
+The console commands `hud_edit`, `pushmenu servers`, and `pushmenu demos` open
+the editor and browsers directly.
+
+On Windows, `m_rawinput 1` enables Raw Input mouse movement. The setting is saved
+and takes effect immediately; `m_rawinput 0` restores the previous input path.
+
+Jump menus and overlays are active in the `jump` game directory. To select the
+original game directory, add `+set game baseq2` to your shortcut's launch options.
+Use `+set basedir "C:/Games/Quake2"` if the game data is stored elsewhere.
+
+## Building
+
+<details>
+<summary>Build from source</summary>
+
+The standalone Windows target requires Visual Studio with the Desktop development
+with C++ workload, a Windows SDK, CMake 3.24+, and Python 3.10+. From the repository
+root, using a Visual Studio generator:
 
 ```text
-cmake -S . -B build/standalone -A Win32 -DR1Q2_CHAT_TRANSLATOR=OFF
-cmake --build build/standalone --config Release --target r1q2
+cmake -S . -B build/standalone -A Win32
+cmake --build build/standalone --config Release --target r1q2 --parallel
 ```
 
 Output: `build/standalone/Release/r1q2_race.exe`.
-Dependencies are downloaded on the first build and linked statically.
+The first configuration/build downloads pinned dependencies. The renderer,
+third-party libraries, and Microsoft C runtime are linked into the executable.
+Copy the contents of `assets/jump/` to your installation's `jump/` directory.
 
-Meson is also supported from an x86 MSVC developer prompt:
+Meson is also supported with an x86 MSVC toolchain. Feature options are listed in
+[CMakeLists.txt](CMakeLists.txt) and [meson.options](meson.options); OpenAL and
+FFmpeg support require additional static libraries.
 
-```text
-meson setup build/meson-win32 --buildtype=release -Dchat_translator=false
-meson compile -C build/meson-win32 r1q2_race
-```
+Legacy Unix targets use `make -C binaries`. See the
+[build recipes](binaries/Makefile). The Unix server browser supports numeric
+addresses, favorites, local lists, and LAN discovery; online lists and hostname
+lookup require the Windows backend.
 
-On Unix, use `make -C binaries` with Python 3.10+; the client needs zlib, and
-the renderer needs SDL2, OpenGL, libpng, and libjpeg. OpenAL and FFmpeg are
-optional; see `CMakeLists.txt`, `meson.options`, or the target Makefile for options.
+</details>
 
-## Version
+## Credits and license
 
-Builds use `R1Q2 Race <commit count> ups`, with the commit hash in diagnostics.
-Local changes add `[modified]`. Full Git history is needed for the count;
-shallow checkouts and source archives show `unknown ups`.
+Based on R1Q2 by Rich (R1CH), with adaptations from Q2PRO and Q2PRO Race.
+Original source notices are retained; see [r1q2.txt](r1q2.txt) for R1Q2 attribution.
 
-## License
-
-R1Q2 Race is a fork of R1Q2 by Rich (R1CH).
-The startup welcome message includes this credit.
-See [r1q2.txt](r1q2.txt) for the original author's attribution and fork requests.
-
-Original source notices are retained. See [COPYING](COPYING) for GPL terms
-and [client/jump/LICENSE](client/jump/LICENSE) for the imported strafe helper's
-MPL terms. Licenses vary by file; the preserved donor [NOTE](NOTE) records
-that boundary. Race adaptations use Q2PRO Race snapshot `5571a17dbb7f`.
+See [COPYING](COPYING) for GPL terms and [client/jump/LICENSE](client/jump/LICENSE)
+for the imported strafe helper's MPL terms. Licenses vary by file; the preserved
+[donor note](NOTE) records that distinction.
