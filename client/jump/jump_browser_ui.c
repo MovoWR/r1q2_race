@@ -141,6 +141,10 @@ static bool JUI_ServerPush (menuFrameWork_t *menu)
 		tab = JUMP_SERVERS_BOOK;
 	else if (*args && !strstr (args, "@jump") && !strstr (args, "mod=jump"))
 		tab = JUMP_SERVERS_ALL;
+#ifndef _WIN32
+	if (!*args)
+		tab = JUMP_SERVERS_BOOK;
+#endif
 	Q_strlcpy (server_menu.sources, args, sizeof (server_menu.sources));
 	server_menu.tabs.curvalue = tab;
 	CL_JumpServersOpen (tab, *args ? server_menu.sources : NULL);
@@ -167,7 +171,11 @@ static void JUI_ServerSize (menuFrameWork_t *menu)
 	server_menu.tabs.generic.x = x - LCOLUMN_OFFSET + (int)strlen (server_menu.tabs.generic.name) * CHAR_WIDTH;
 	server_menu.tabs.generic.y = 40;
 	server_menu.list.generic.x = x;
+#ifdef _WIN32
 	server_menu.list.generic.y = 64;
+#else
+	server_menu.list.generic.y = 40;
+#endif
 	server_menu.list.generic.height = max (30, actions_y - server_menu.list.generic.y - 10);
 	server_menu.list.numcolumns = 5;
 	server_menu.list.columns[0] = (menuListColumn_t){ "Server", server_width, UI_LEFT };
@@ -234,7 +242,9 @@ void JUI_Menu_Servers (void)
 	server_menu.tabs.generic.name = "Sources";
 	server_menu.tabs.itemnames = server_tabs;
 	server_menu.tabs.generic.change = JUI_ServerChange;
+#ifdef _WIN32
 	Menu_AddItem (&server_menu.menu, &server_menu.tabs);
+#endif
 	server_menu.list.generic.type = MTYPE_LIST;
 	server_menu.list.generic.flags = QMF_HASFOCUS;
 	server_menu.list.generic.change = JUI_ServerChange;

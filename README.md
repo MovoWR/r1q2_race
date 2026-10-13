@@ -11,6 +11,9 @@ Movement prediction uses `cl_async 2` by default.
 On Windows, set `m_rawinput 1` to enable Raw Input mouse movement.
 `gl_zfar 0` sizes the far clip distance to the map; positive values override it.
 
+Music and translation controls appear when their build dependencies are enabled.
+Online server lists require Windows; Unix supports favorites, local lists, and LAN.
+
 ## Build
 
 Windows x86 requires Visual Studio with C++ support, CMake 3.24+, and Python 3.10+.
