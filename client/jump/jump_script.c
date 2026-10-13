@@ -535,8 +535,8 @@ static void Parse_Bind (menuFrameWork_t *menu)
 		{ NULL }
 	};
 	menuKeybind_t *k;
-	const char *status = "Press Enter to change, Backspace to clear";
-	const char *altstatus = "Press the desired key, Escape to cancel";
+	const char *status = "Enter: bind. Backspace: clear.";
+	const char *altstatus = "Press a key; Escape cancels.";
 	int c;
 	char *show_if_cvar = NULL;
 	char *show_if_value = NULL;
@@ -730,8 +730,8 @@ static void Parse_BindSelect2 (menuFrameWork_t *menu)
 {
 	static const cmd_option_t o_bs2[] = { { "s:", "status" }, { "S:", "altstatus" }, { NULL } };
 	menuBindSelect2_t *bs;
-	const char *status = "Enter to bind  |  Click selects to open  |  Tab to switch  |  L/R to adjust";
-	const char *altstatus = "Press the desired key, Escape to cancel";
+	const char *status = "Tab: column. Enter: bind/open. Left/Right: value.";
+	const char *altstatus = "Press a key; Escape cancels.";
 	int c, i, split, n1, n2;
 	char *show_if_cvar = NULL;
 	char *show_if_value = NULL;

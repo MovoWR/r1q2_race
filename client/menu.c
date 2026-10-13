@@ -2619,7 +2619,7 @@ static void JoinServer_MenuInit( void )
 	s_joinserver_search_action.generic.x	= 0;
 	s_joinserver_search_action.generic.y	= 10;
 	s_joinserver_search_action.generic.callback = SearchLocalGamesFunc;
-	s_joinserver_search_action.generic.statusbar = "search for servers";
+	s_joinserver_search_action.generic.statusbar = "Search for servers.";
 
 	s_joinserver_server_title.generic.type = MTYPE_SEPARATOR;
 	s_joinserver_server_title.generic.name = "connect to...";
@@ -2636,7 +2636,7 @@ static void JoinServer_MenuInit( void )
 		s_joinserver_server_actions[i].generic.x		= 0;
 		s_joinserver_server_actions[i].generic.y		= 40 + i*10;
 		s_joinserver_server_actions[i].generic.callback = JoinServerFunc;
-		s_joinserver_server_actions[i].generic.statusbar = "press ENTER to connect";
+		s_joinserver_server_actions[i].generic.statusbar = "Enter: connect.";
 	}
 
 	Menu_AddItem( &s_joinserver_menu, &s_joinserver_address_book_action );
@@ -2715,10 +2715,10 @@ static void RulesChangeFunc ( void *self )
 	}
 	else if(s_rules_box.curvalue == 1)		// coop				// PGM
 	{
-		s_maxclients_field.generic.statusbar = "4 maximum for cooperative";
+		s_maxclients_field.generic.statusbar = "Co-op: 4 players maximum.";
 		if (atoi(s_maxclients_field.buffer) > 4)
 			strcpy( s_maxclients_field.buffer, "4" );
-		s_startserver_dmoptions_action.generic.statusbar = "N/A for cooperative";
+		s_startserver_dmoptions_action.generic.statusbar = "Unavailable in co-op.";
 	}
 //=====
 //PGM

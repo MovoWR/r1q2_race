@@ -356,7 +356,7 @@ void VID_MenuInit( void )
 		custom_height >= 48 && custom_height < 0x10000 ? (int)custom_height : 1080);
 	s_custom_width.cursor = strlen (s_custom_width.buffer);
 	s_custom_height.cursor = strlen (s_custom_height.buffer);
-	s_custom_width.generic.statusbar = s_custom_height.generic.statusbar = "Used by the custom video mode";
+	s_custom_width.generic.statusbar = s_custom_height.generic.statusbar = "Size for Custom mode.";
 
 	s_adjustfov_box.generic.type = MTYPE_SPINCONTROL;
 	s_adjustfov_box.generic.name = "widescreen FOV";
@@ -376,7 +376,7 @@ void VID_MenuInit( void )
 		s_native_mode.generic.name = "detected mode";
 		s_native_mode.generic.y = 130;
 		s_native_mode.generic.callback = NativeModeCallback;
-		s_native_mode.generic.statusbar = "Overrides legacy resolution; geometry takes priority in a window";
+		s_native_mode.generic.statusbar = "Overrides resolution; window geometry takes priority.";
 		s_native_mode.itemnames = s_native_names.names;
 		s_native_mode.curvalue = Cvar_Get ("vid_mode", "0", CVAR_ARCHIVE)->intvalue;
 		if (s_native_mode.curvalue < 0 || s_native_mode.curvalue > s_native_names.count)
@@ -385,7 +385,7 @@ void VID_MenuInit( void )
 	s_geometry.generic.type = MTYPE_FIELD;
 	s_geometry.generic.name = "window geometry";
 	s_geometry.generic.y = 140;
-	s_geometry.generic.statusbar = "Optional WIDTHxHEIGHT[+X+Y]; fullscreen ignores this";
+	s_geometry.generic.statusbar = "Window only: WIDTHxHEIGHT[+X+Y].";
 	s_geometry.length = sizeof (s_geometry.buffer) - 1;
 	s_geometry.visible_length = 24;
 	Q_strncpy (s_geometry.buffer, Cvar_Get ("vid_geometry", "", CVAR_ARCHIVE)->string, sizeof (s_geometry.buffer) - 1);

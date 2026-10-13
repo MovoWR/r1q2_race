@@ -5556,8 +5556,8 @@ static const char *Menu_ItemStatusText (menuFrameWork_t *menu, const menuCommon_
 	{
 		const char *timing = item->flags & QMF_DEFER_COMMIT ?
 			(CL_JumpUIVideoRestartRequired (Menu_ItemCvar (item)) ?
-				"Choose Apply changes to use this setting; video restarts." :
-				"Choose Apply changes to use this setting; no video restart needed.") :
+				"Apply changes; video restarts." :
+				"Apply changes; no restart.") :
 			"Changes immediately.";
 		Q_snprintf (buffer, size, "%s%s%s", status ? status : "",
 			status && *status ? " " : "", timing);
@@ -5590,7 +5590,7 @@ static const char *Menu_ItemStatusText (menuFrameWork_t *menu, const menuCommon_
 static const char *Menu_StatusText (menuFrameWork_t *menu, char *buffer, size_t size)
 {
 	if (menu->videoTabsFocused)
-		return "Left/Right switches tabs. Down or Enter opens settings. Ctrl+Tab also switches tabs.";
+		return "Left/Right or Ctrl+Tab: tabs. Down/Enter: settings.";
 	return Menu_ItemStatusText (menu, Menu_ItemAtCursor (menu), menu->status, buffer, size);
 }
 

@@ -461,16 +461,16 @@ static qboolean JUI_VideoState (void)
 	JUI_VideoEnabled (&video_menu.actions[2].generic, snapshot.active && !snapshot.applying && !snapshot.committing);
 	JUI_VideoEnabled (&video_menu.actions[3].generic, !snapshot.active && !snapshot.applying && !snapshot.committing);
 	if (snapshot.active)
-		Com_sprintf (video_menu.status, sizeof (video_menu.status), "Keep settings within %d seconds. Alt+Tab, Back or timeout restores the previous display.", snapshot.seconds);
+		Com_sprintf (video_menu.status, sizeof (video_menu.status), "Keep settings within %d seconds; Alt+Tab or Back cancels.", snapshot.seconds);
 	else
 	{
 		focused = Menu_ItemAtCursor (&video_menu.menu);
-		help = focused && focused->status ? focused->status : "Choose your display settings, then Apply changes.";
+		help = focused && focused->status ? focused->status : "Choose settings, then Apply changes.";
 		if (focused == &video_menu.kind.generic)
-			help = windowed ? "Windowed: choose the window size below." : video_menu.draft.mode == JUMP_DISPLAY_BORDERLESS ? "Borderless fullscreen uses desktop size and refresh. Keep settings before testing Alt+Tab." :
-																															 "Exclusive fullscreen switches display resolution and refresh. Alt+Tab may switch the display back.";
+			help = windowed ? "Set the window size below." : video_menu.draft.mode == JUMP_DISPLAY_BORDERLESS ? "Use desktop resolution and refresh." :
+																															 "Switch display resolution and refresh.";
 		if (!snapshot.available)
-			help = "Display controls are unavailable with this renderer/platform. Brightness, Graphics and Advanced remain accessible.";
+			help = "Display controls unavailable; other video settings still work.";
 		Com_sprintf (video_menu.status, sizeof (video_menu.status), "%s%s%s", video_menu.error[0] ? video_menu.error : snapshot.message,
 			video_menu.error[0] || snapshot.message[0] ? " " : "", help);
 	}
@@ -536,15 +536,15 @@ void JUI_Menu_Video (void)
 {
 	menuSpinControl_t *spins[8];
 	static const char *names[] = { "Apply changes", "Keep settings", "Revert", "Discard changes" };
-	static const char *help[] = { "Choose a display mode.", "Choose which monitor shows the game.",
-		"Resolution and refresh rate for exclusive fullscreen only.",
-		"Choose a window size in pixels, or Custom to enter width and height. Applies with Apply changes.",
+	static const char *help[] = { "Choose a display mode.", "Choose the game monitor.",
+		"Resolution and refresh for exclusive fullscreen.",
+		"Window size in pixels; Custom sets width and height.",
 		"Remove the window frame and title bar.",
-		"Hide the title bar while keeping the window frame.", "Prevent dragging the window edges to resize it.",
-		"Off allows tearing; On prevents it; Adaptive relaxes synchronization when frames are late." };
-	static const char *action_help[] = { "Apply pending video changes. Display mode changes need Keep within 15 seconds, before Alt+Tab or Back.",
-		"Save the tested display settings and apply pending Graphics and Advanced changes.", "Restore the display settings used before this trial.",
-		"Discard pending video changes. Settings that already applied live remain active." };
+		"Hide the title bar; keep the frame.", "Prevent resizing by dragging window edges.",
+		"Prevent tearing; Adaptive allows tearing below refresh rate." };
+	static const char *action_help[] = { "Apply changes; confirm new display modes within 15 seconds.",
+		"Keep this display and apply pending video settings.", "Restore the previous display settings.",
+		"Discard pending changes; live changes remain." };
 	int i;
 
 	video_menu.menu.name = "video";
@@ -574,8 +574,8 @@ void JUI_Menu_Video (void)
 	video_menu.width.generic.type = video_menu.height.generic.type = MTYPE_FIELD;
 	video_menu.width.generic.name = "Window width";
 	video_menu.height.generic.name = "Window height";
-	video_menu.width.generic.status = "Window width in pixels, from 320 to 8192.";
-	video_menu.height.generic.status = "Window height in pixels, from 240 to 8192.";
+	video_menu.width.generic.status = "Width in pixels (320-8192).";
+	video_menu.height.generic.status = "Height in pixels (240-8192).";
 	video_menu.width.width = video_menu.height.width = 8;
 	video_menu.width.length = video_menu.height.length = 8;
 	spins[0] = &video_menu.kind;
@@ -602,7 +602,7 @@ void JUI_Menu_Video (void)
 	}
 	video_menu.brightness.generic.type = MTYPE_SLIDER;
 	video_menu.brightness.generic.name = "Brightness";
-	video_menu.brightness.generic.status = "Move right to brighten textures. Lower gamma values are brighter.";
+	video_menu.brightness.generic.status = "Move right to brighten the image.";
 	video_menu.brightness.generic.flags = QMF_DEFER_COMMIT | QMF_SHOW_VALUE;
 	video_menu.brightness.cvar = Cvar_WeakGet ("vid_gamma");
 	video_menu.brightness.minvalue = 1.3f;
