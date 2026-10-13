@@ -3773,7 +3773,7 @@ void CL_InitLocal (void)
 	cl_maxfps = Cvar_Get ("cl_maxfps", "60", CVAR_ARCHIVE);
 	cl_maxfps->changed = _maxfps_changed;
 
-	cl_async = Cvar_Get ("cl_async", "1", 0);
+	cl_async = Cvar_Get ("cl_async", "2", 0);
 	cl_async->changed = _async_changed;
 
 	cl_upspeed = Cvar_Get ("cl_upspeed", "200", 0);

@@ -245,23 +245,46 @@ int		EXPORT CL_PMpointcontents (vec3_t point)
 	return contents;
 }
 
-/*
-=================
-CL_PredictMovement
+/* Evaluate presentation without changing the committed command or forecast.
+ * The extra 8 ms on all axes absorbs small scheduling slips during jumps too. */
+static void CL_CommandSyncViewSample (vec3_t origin, vec3_t velocity)
+{
+	int		i;
+	float	fraction, elapsed, duration, delta, start, end;
 
-Sets cl.predicted_origin and cl.predicted_angles
-=================
-*/
-/* Interpolate toward one full-command forecast. A changing partial msec
- * can choose opposite sides of a step on consecutive render frames. This
- * forecast never enters the command ring or prediction-error history. */
+	elapsed = (float)(cls.realtime - cl.cmdsync_view.time);
+	duration = cl.cmdsync_view.msec + 8.0f;
+	fraction = elapsed / duration;
+	if (fraction < 0)
+		fraction = 0;
+	if (fraction > 1)
+		fraction = 1;
+
+	for (i = 0; i < 3; i++)
+	{
+		delta = cl.cmdsync_view.end[i] - cl.cmdsync_view.start[i];
+		start = cl.cmdsync_view.start_velocity[i] * duration - delta;
+		end = cl.cmdsync_view.end_velocity[i] * duration - delta;
+		origin[i] = cl.cmdsync_view.start[i] + delta * fraction +
+			start * fraction * (1 - fraction) * (1 - fraction) -
+			end * fraction * fraction * (1 - fraction);
+		velocity[i] = (delta + start * (3 * fraction * fraction - 4 * fraction + 1) +
+			end * (3 * fraction * fraction - 2 * fraction)) / duration;
+		if (elapsed < 0 || elapsed > duration)
+			velocity[i] = 0;
+	}
+}
+
+/* One full-command collision forecast, with continuous view velocity.
+ * It never enters the command ring or prediction-error history. */
 static void CL_CommandSyncView (pmove_new_t *pm, int current)
 {
-	int i, slot = (current - 1) & (CMD_BACKUP - 1);
-	float fraction, distance = 0;
-	vec3_t origin, previous;
-	pmove_new_t forecast;
-	usercmd_t *cmd = &cl.cmds[slot];
+	int			i, msec, slot = (current - 1) & (CMD_BACKUP - 1);
+	float		distance = 0, slope, limit;
+	vec3_t		origin, previous, velocity;
+	pmove_new_t	forecast;
+	qboolean	jump;
+	usercmd_t	*cmd = &cl.cmds[slot];
 
 	for (i = 0; i < 3; i++)
 	{
@@ -275,40 +298,70 @@ static void CL_CommandSyncView (pmove_new_t *pm, int current)
 		return;
 	}
 
+	/* The last command describes the elapsed interval, not the next one.
+	 * FPS changes must update the full forecast before that interval starts. */
+	msec = cmd->msec;
+	if (!cl_timedemo->intvalue)
+	{
+		msec = (int)ceilf (1000.0f / cl_maxfps->value);
+		if (msec < 1)
+			msec = 1;
+		if (msec > 200)
+			msec = 200;
+	}
+
 	if (!cl.cmdsync_view.valid || cl.cmdsync_view.sequence != current ||
+		cl.cmdsync_view.msec != msec ||
 		memcmp (&cl.cmdsync_view.base, &pm->s, sizeof (pm->s)))
 	{
 		VectorCopy (origin, previous);
+		VectorClear (velocity);
 		if (cl.cmdsync_view.valid && distance <= 80 &&
 			!(pm->s.pm_flags & PMF_TIME_TELEPORT))
-		{
-			fraction = (cls.realtime - cl.cmdsync_view.time) / (float)cl.cmdsync_view.msec;
-			if (fraction < 0)
-				fraction = 0;
-			if (fraction > 1)
-				fraction = 1;
-			for (i = 0; i < 3; i++)
-				previous[i] = cl.cmdsync_view.start[i] + fraction * (cl.cmdsync_view.end[i] - cl.cmdsync_view.start[i]);
-		}
+			CL_CommandSyncViewSample (previous, velocity);
+		jump = (pm->s.pm_flags & PMF_JUMP_HELD) &&
+			(!cl.cmdsync_view.valid || !(cl.cmdsync_view.base.pm_flags & PMF_JUMP_HELD)) &&
+			(!cl.cmdsync_view.valid || pm->s.velocity[2] > cl.cmdsync_view.base.velocity[2]);
 		forecast = *pm;
 		forecast.cmd = *cmd;
+		if (!cl_timedemo->intvalue)
+			forecast.cmd.msec = (byte)((msec / 1000.0f) * 1000);
+		if (!forecast.cmd.msec)
+			forecast.cmd.msec = 1;
 		Pmove (&forecast);
 		cl.cmdsync_view.valid = true;
 		cl.cmdsync_view.sequence = current;
 		cl.cmdsync_view.time = cls.realtime;
-		cl.cmdsync_view.msec = cmd->msec;
+		cl.cmdsync_view.msec = msec;
 		cl.cmdsync_view.base = pm->s;
 		VectorCopy (previous, cl.cmdsync_view.start);
 		for (i = 0; i < 3; i++)
 			cl.cmdsync_view.end[i] = forecast.s.origin[i] * 0.125f;
+		for (i = 0; i < 3; i++)
+		{
+			cl.cmdsync_view.start_velocity[i] = velocity[i];
+			cl.cmdsync_view.end_velocity[i] = (cl.cmdsync_view.end[i] - origin[i]) / msec;
+			if (i == 2)
+				cl.cmdsync_view.end_velocity[i] = forecast.s.velocity[i] * 0.000125f;
+			/* Monotone tangents prevent overshoot on stops and reversals. */
+			slope = (cl.cmdsync_view.end[i] - previous[i]) / (msec + 8.0f);
+			/* A committed jump starts rising immediately. Zero initial curve
+			 * acceleration avoids a slow start followed by a catch-up pulse. */
+			if (i == 2 && jump)
+				cl.cmdsync_view.start_velocity[i] =
+					1.5f * slope - 0.5f * cl.cmdsync_view.end_velocity[i];
+			limit = 3 * fabsf (slope);
+			if (cl.cmdsync_view.start_velocity[i] * slope <= 0)
+				cl.cmdsync_view.start_velocity[i] = 0;
+			else if (fabsf (cl.cmdsync_view.start_velocity[i]) > limit)
+				cl.cmdsync_view.start_velocity[i] = 3 * slope;
+			if (cl.cmdsync_view.end_velocity[i] * slope <= 0)
+				cl.cmdsync_view.end_velocity[i] = 0;
+			else if (fabsf (cl.cmdsync_view.end_velocity[i]) > limit)
+				cl.cmdsync_view.end_velocity[i] = 3 * slope;
+		}
 	}
-	fraction = (cls.realtime - cl.cmdsync_view.time) / (float)cl.cmdsync_view.msec;
-	if (fraction < 0)
-		fraction = 0;
-	if (fraction > 1)
-		fraction = 1;
-	for (i = 0; i < 3; i++)
-		cl.predicted_origin[i] = cl.cmdsync_view.start[i] + fraction * (cl.cmdsync_view.end[i] - cl.cmdsync_view.start[i]);
+	CL_CommandSyncViewSample (cl.predicted_origin, velocity);
 }
 
 /*

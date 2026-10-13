@@ -7,6 +7,7 @@ speed overlays, network diagnostics, and a server browser.
 Quake II and Jump assets are supplied separately. The default game is `jump`;
 use `+set game baseq2` for the original game.
 
+Movement prediction uses `cl_async 2` by default.
 `gl_zfar 0` sizes the far clip distance to the map; positive values override it.
 
 ## Build

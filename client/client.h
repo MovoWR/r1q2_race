@@ -215,6 +215,7 @@ typedef struct client_state_s
 		int sequence, time, msec;
 		pmove_state_t base;
 		vec3_t start, end;
+		vec3_t start_velocity, end_velocity;
 	} cmdsync_view; // presentation only; cleared with client state
 
 
@@ -483,6 +484,7 @@ extern	cvar_t	*cl_nolerp;
 
 extern	cvar_t	*cl_railtrail;
 extern	cvar_t	*cl_async;
+extern	cvar_t	*cl_maxfps;
 qboolean CL_AsyncCommandSync (void);
 qboolean CL_CommandWaitPending (void);
 void CL_CommandWait (void);
