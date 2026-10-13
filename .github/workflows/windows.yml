@@ -73,3 +73,44 @@ jobs:
 
       - name: Compile client
         run: cmake --build build/windows --target r1q2 --parallel
+
+      - name: Validate client assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Get-Content assets/jump-assets.json -Raw | ConvertFrom-Json
+          $assetRoot = (Resolve-Path assets).Path
+          $expected = @($manifest.files | ForEach-Object { $_.path })
+          $actual = @(Get-ChildItem assets/jump -Recurse -File | ForEach-Object {
+            [IO.Path]::GetRelativePath($assetRoot, $_.FullName).Replace('\', '/')
+          })
+          if ($expected.Count -eq 0 -or ($expected | Sort-Object -Unique).Count -ne $expected.Count -or
+              (Compare-Object ($expected | Sort-Object) ($actual | Sort-Object) -CaseSensitive)) {
+            throw 'Asset manifest differs from assets/jump inventory'
+          }
+          foreach ($asset in $manifest.files) {
+            $path = Join-Path $assetRoot $asset.path
+            if ((Get-Item -LiteralPath $path).Length -ne $asset.bytes -or
+                (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $asset.sha256) {
+              throw "Asset hash or size mismatch: $($asset.path)"
+            }
+          }
+
+      - name: Package client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory artifacts | Out-Null
+          Copy-Item build/windows/r1q2_race.exe artifacts/
+          Copy-Item assets/jump artifacts/jump -Recurse
+          Copy-Item COPYING artifacts/
+          New-Item -ItemType Directory artifacts/assets, artifacts/client/jump -Force | Out-Null
+          Copy-Item assets/jump-assets.json artifacts/assets/
+          Copy-Item client/jump/LICENSE artifacts/client/jump/
+
+      - name: Upload client
+        uses: actions/upload-artifact@v4
+        with:
+          name: r1q2-race-windows-x86
+          path: artifacts/
+          if-no-files-found: error

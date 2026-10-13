@@ -1,0 +1,247 @@
+{
+  "donor_commit": "5571a17dbb7fb03915e7b403b1f981b7006a1a05",
+  "files": [
+    {
+      "path": "jump/models/jump/ball1/skin0.pcx",
+      "bytes": 6273,
+      "sha256": "31d0695359fcb410240adf6eac4cf20a07e955279083cbc1d3bd9e61e9477d91",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/ball1/skin1.pcx",
+      "bytes": 6209,
+      "sha256": "72da60fe8110b940189d92cf41425bac814970ac3a46e3b1a0f57c0ffc0a883b",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/ball1/skin2.pcx",
+      "bytes": 57275,
+      "sha256": "cf5ca6a278fab4ddff967768f9c7f546c9032efc6d5ce4752b3ba61753015be8",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/ball1/tris.md2",
+      "bytes": 8716,
+      "sha256": "43fa89f9e2281d349ade6b05521a707af2b40d45759f8ba2147c4854cff7d620",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/emptymodel/tris.md2",
+      "bytes": 348,
+      "sha256": "e021e433cce7eb2625d0483df867f3d82d4e0f8a7ded83b21c62e68429b9e010",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/largebo2/tris.md2",
+      "bytes": 820,
+      "sha256": "d6214c1215e629aca4a04a4685313da42da76e8886dad5a843d57809dbe39df4",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/largebox3/tris.md2",
+      "bytes": 1204,
+      "sha256": "f3ff56071d58b569a66f5dc2f166a7e3cd4ff7f3fb62b1d38558beb09689631b",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/mediumbo2/tris.md2",
+      "bytes": 820,
+      "sha256": "f0c8741f89ea88890d047ae0969084a59a6bf81cb12a2345c5d3a7d73be17958",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/mediumbox3/tris.md2",
+      "bytes": 1204,
+      "sha256": "2ede729ac6bfd22ea5ef1432bbda53029e8a5a42fa58b48a65fc786c63b15490",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbo2/skin1.pcx",
+      "bytes": 2301,
+      "sha256": "364c58bf5169c2d375978bfcbcba67737923215db172984d3e91c445ae9429d4",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbo2/skin2.pcx",
+      "bytes": 1961,
+      "sha256": "1ee19fd80bd71bc0886233e0adbbfdaa432e530d1f3ab7c1b35586e83494a2ae",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbo2/skin3.pcx",
+      "bytes": 2301,
+      "sha256": "364c58bf5169c2d375978bfcbcba67737923215db172984d3e91c445ae9429d4",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbo2/skin4.pcx",
+      "bytes": 1697,
+      "sha256": "5280ac8e604f5b0f546082c4ccfa61798ddb626b84812b1607e387b101852765",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbo2/tris.md2",
+      "bytes": 820,
+      "sha256": "5a616e3467cdf41223bdc5d8771a7dbf7cf650f8e71ba109ee67c6a6233aacb7",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin1.pcx",
+      "bytes": 2301,
+      "sha256": "2a6d7b56068e239b75e0abe590927e3e66348388d5851a819ae37387b04754ae",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin10.pcx",
+      "bytes": 2301,
+      "sha256": "5c6e0747253ab875ce4529dc3148b106aac658e847a26abb732d0ec5b37646a7",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin2.pcx",
+      "bytes": 1961,
+      "sha256": "1ee19fd80bd71bc0886233e0adbbfdaa432e530d1f3ab7c1b35586e83494a2ae",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin3.pcx",
+      "bytes": 2301,
+      "sha256": "364c58bf5169c2d375978bfcbcba67737923215db172984d3e91c445ae9429d4",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin4.pcx",
+      "bytes": 1697,
+      "sha256": "5280ac8e604f5b0f546082c4ccfa61798ddb626b84812b1607e387b101852765",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin5.pcx",
+      "bytes": 2301,
+      "sha256": "ce092502cd9bb8d25db289db0ce0df2f369c63b605d1abd03cf7059d229561d0",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin6.pcx",
+      "bytes": 2301,
+      "sha256": "017f9e30a82e3eeb849b3394e48c9bb26971407ca6d1abdd37731244378cedb4",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin7.pcx",
+      "bytes": 2301,
+      "sha256": "4ab3fa07712c2dd3cbd2f11e39fd4f99915f96f58c277ac4691f2fee646236ab",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin8.pcx",
+      "bytes": 1961,
+      "sha256": "d12ccdfbded5db3ed7a20db4234fc25bb56ac925ce018b603af52bd6aefe5913",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/skin9.pcx",
+      "bytes": 1961,
+      "sha256": "101b5ab116a877f48b884f9163cf39673cfbf9117d4c8aa9115c8df4c310343a",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallbox3/tris.md2",
+      "bytes": 1204,
+      "sha256": "47bf69b5957ef673c72e333ba4340048a5e97a0e9cde53014768dcbe41461ce3",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallmodel/skin.pcx",
+      "bytes": 2301,
+      "sha256": "2a6d7b56068e239b75e0abe590927e3e66348388d5851a819ae37387b04754ae",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/models/jump/smallmodel/tris.md2",
+      "bytes": 628,
+      "sha256": "cb8010d5375f9dee5900c99f2c736f9e582b61d6e1005c75efe0f1276d3ca6dc",
+      "source": "User-supplied addition; not part of the frozen donor asset set"
+    },
+    {
+      "path": "jump/pics/attack.pcx",
+      "bytes": 9192,
+      "sha256": "0d1c12a6d5d3ef03ca22aad767a6b44a1c2ee3a68179a2994f463433aefed61b"
+    },
+    {
+      "path": "jump/pics/back.pcx",
+      "bytes": 9192,
+      "sha256": "3984c1050e9a375838945eab997ff92632fe0c901b0801ff2c82a8e9ecd6c1c2"
+    },
+    {
+      "path": "jump/pics/conback.png",
+      "bytes": 1097539,
+      "sha256": "96d45f8853680a500354714bb0c3e76433d9d0590b3c70a81ae725b7ef72854b"
+    },
+    {
+      "path": "jump/pics/duck.pcx",
+      "bytes": 9192,
+      "sha256": "e8e638109a73cd01c0f5a7f359d676c5edfa993a210b156bb23ff8b35c0f88d9"
+    },
+    {
+      "path": "jump/pics/forward.pcx",
+      "bytes": 9192,
+      "sha256": "aecc8f94794372d25341d62482b6ae97a81734732e3ba112212667a0fcbdd3a5"
+    },
+    {
+      "path": "jump/pics/jump.pcx",
+      "bytes": 9192,
+      "sha256": "382e88b88b3229ed479f6101f94137b83cce0d1916387304ce6c7792412e0c0b"
+    },
+    {
+      "path": "jump/pics/left.pcx",
+      "bytes": 9192,
+      "sha256": "4ebefbbfbd3725b902344b5088438cb68e98616889a31d88ec0e55ee6b41a414"
+    },
+    {
+      "path": "jump/pics/prochars.png",
+      "bytes": 95435,
+      "sha256": "af4cbb8a7e1b3f2588de799a6500fe928fc524799492ef914be73ad350a9b008"
+    },
+    {
+      "path": "jump/pics/q2jump_background.png",
+      "bytes": 1621123,
+      "sha256": "af94d80602ea3076ab9fc52341a90ebb2b8c2f24031435e65773965bb824b089"
+    },
+    {
+      "path": "jump/pics/right.pcx",
+      "bytes": 9192,
+      "sha256": "f779fae8cc34495d863a17e844289a92e51a80417ca5e66fa473a968f261c3ea"
+    },
+    {
+      "path": "jump/players/female/ctf_b.pcx",
+      "bytes": 42034,
+      "sha256": "d4a6704bd6a273c1998513459b9e2d7c14c56046f6a0bb85cc7e3add0948b4bb"
+    },
+    {
+      "path": "jump/players/female/ctf_b.png",
+      "bytes": 2050305,
+      "sha256": "da4470ec974cde00cb037da1b5d0d43af57ea7f6cfd3f19b15586c867902cf50"
+    },
+    {
+      "path": "jump/players/female/ctf_b_i.pcx",
+      "bytes": 1473,
+      "sha256": "06456aa5c258d04ad0a1efca06c20df740858675f8f4d47d8b4469f56acdad34"
+    },
+    {
+      "path": "jump/players/female/ctf_r.pcx",
+      "bytes": 27685,
+      "sha256": "b5fafa5cb730a0a2ff680eb61a92a46e32fb49d04d59c9bed527f052758c0845"
+    },
+    {
+      "path": "jump/players/female/ctf_r.png",
+      "bytes": 1973975,
+      "sha256": "658233b72b2aa7e0592b6920465f1c3118c8f0cb0da3a39ee8ae9099ff9e34c1"
+    },
+    {
+      "path": "jump/players/female/ctf_r_i.pcx",
+      "bytes": 1476,
+      "sha256": "dffee873ad039ae7d5b484fbbecd08c4e87d6f38aaba534d27a762b83dbaec32"
+    }
+  ]
+}
