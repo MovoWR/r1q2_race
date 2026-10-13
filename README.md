@@ -26,9 +26,9 @@ meson setup build/meson-win32 --buildtype=release -Dchat_translator=false
 meson compile -C build/meson-win32 r1q2_race
 ```
 
-On Unix, use `make -C binaries`; the client needs zlib, and the renderer needs
-SDL2, OpenGL, libpng, and libjpeg. OpenAL and FFmpeg are optional;
-see `CMakeLists.txt`, `meson.options`, or the target Makefile for their options.
+On Unix, use `make -C binaries` with Python 3.10+; the client needs zlib, and
+the renderer needs SDL2, OpenGL, libpng, and libjpeg. OpenAL and FFmpeg are
+optional; see `CMakeLists.txt`, `meson.options`, or the target Makefile for options.
 
 ## Version
 

@@ -18,6 +18,11 @@ if get_option('b_vscrt') not in ['static_from_buildtype', 'mt', 'mtd']
   error('The standalone client requires a static MSVC runtime (b_vscrt=static_from_buildtype, mt, or mtd).')
 endif
 
+python = import('python').find_installation()
+if not python.language_version().version_compare('>=3.10')
+  error('Python 3.10 or newer is required.')
+endif
+
 # Share the native archive, API link and capability checks with CMake.
 media_deps = []
 if get_option('avcodec')
@@ -27,7 +32,6 @@ if get_option('avcodec')
   if get_option('b_vscrt') == 'mtd' or (get_option('b_vscrt') == 'static_from_buildtype' and get_option('buildtype') == 'debug')
     error('avcodec requires /MT; the selected configuration uses /MTd. Select a release static CRT configuration.')
   endif
-  python = import('python').find_installation()
   ffmpeg_check = run_command(python, files('tools/check_static_ffmpeg.py'),
     '--prefix', get_option('ffmpeg_root'), '--compiler', cc.cmd_array()[0],
     '--output-dir', meson.current_build_dir() / 'ffmpeg-check', check: false)
@@ -53,7 +57,6 @@ if get_option('openal')
   if get_option('b_vscrt') == 'mtd' or (get_option('b_vscrt') == 'static_from_buildtype' and get_option('buildtype') == 'debug')
     error('openal requires /MT; select a release static CRT configuration.')
   endif
-  python = import('python').find_installation()
   openal_check = run_command(python, files('tools/check_static_openal.py'),
     '--prefix', get_option('openal_root'), '--compiler', cc.cmd_array()[0],
     '--output-dir', meson.current_build_dir() / 'openal-check', check: false)
@@ -264,10 +267,9 @@ endif
 if get_option('core_renderer')
   definitions += ['-DR1Q2_GL_CORE']
 endif
-version_python = import('python').find_installation()
 version_header = custom_target('race_version',
   output: 'race_version_generated.h',
-  command: [version_python, files('tools/generate_version.py'),
+  command: [python, files('tools/generate_version.py'),
     '--source', meson.project_source_root(), '--output', '@OUTPUT@'],
   build_always_stale: true,
 )

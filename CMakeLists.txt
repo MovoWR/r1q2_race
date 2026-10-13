@@ -14,6 +14,7 @@ if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 enable_language(RC)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
 
 # Check explicitly supplied codecs before any dependency download/configuration.
 if(R1Q2_AVCODEC)
@@ -24,7 +25,6 @@ if(R1Q2_AVCODEC)
     if("DEBUG" IN_LIST ffmpeg_configurations)
         message(FATAL_ERROR "R1Q2_AVCODEC requires /MT; Debug uses /MTd. Select only non-Debug configurations (for example -DCMAKE_CONFIGURATION_TYPES=Release).")
     endif()
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_static_ffmpeg.py"
             --prefix "${R1Q2_FFMPEG_ROOT}" --compiler "${CMAKE_C_COMPILER}"
@@ -46,7 +46,6 @@ if(R1Q2_OPENAL)
     if("DEBUG" IN_LIST openal_configurations)
         message(FATAL_ERROR "R1Q2_OPENAL requires /MT; select only non-Debug configurations (for example -DCMAKE_CONFIGURATION_TYPES=Release).")
     endif()
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_static_openal.py"
             --prefix "${R1Q2_OPENAL_ROOT}" --compiler "${CMAKE_C_COMPILER}"
@@ -270,7 +269,6 @@ add_executable(r1q2 WIN32
     ref_gl/gl_rsurf.c
     ref_gl/gl_warp.c)
 set_target_properties(r1q2 PROPERTIES OUTPUT_NAME r1q2_race)
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_target(race_version
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_version.py"
         --source "${CMAKE_CURRENT_SOURCE_DIR}"
