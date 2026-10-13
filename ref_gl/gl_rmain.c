@@ -2770,6 +2770,11 @@ void R_Register( void )
 	GL_ShaderRegister ();
 	GL_SkyRegister ();
 	GL_PostFXRegister ();
+	/* Register before the built-in menus filter unsupported settings. */
+	GL_JumpOriginRegister ();
+	ri.Cvar_Get ("gl_beamstyle", "1", 0);
+	ri.Cvar_Get ("gl_lava_intensity", "1", 0);
+	ri.Cvar_Get ("gl_lightmap_precision", "0", CVAR_ARCHIVE);
 	gl_batch_2d = ri.Cvar_Get ("gl_batch_2d", "1", CVAR_ARCHIVE);
 	cl_gunfov = ri.Cvar_Get ("cl_gunfov", "90", CVAR_ARCHIVE);
 	cl_gunalpha = ri.Cvar_Get ("cl_gunalpha", "1", CVAR_ARCHIVE);

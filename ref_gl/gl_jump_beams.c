@@ -20,7 +20,7 @@ static int jump_beam_vertex_count, jump_beam_batch_style;
 static int GL_BeamStyle (void)
 {
 	if (!jump_beam_style)
-		jump_beam_style = ri.Cvar_Get ("gl_beamstyle", "0", 0);
+		jump_beam_style = ri.Cvar_Get ("gl_beamstyle", "1", 0);
 	return jump_beam_style->intvalue;
 }
 

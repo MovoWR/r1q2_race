@@ -1450,6 +1450,10 @@ void CL_JumpUIInit (void)
 
 	strcpy (uis.weaponModel, "w_railgun.md2");
 
+	/* Register every address-book slot before filtering built-in controls. */
+	for (i = 0; i < 16; i++)
+		Cvar_Get (va ("adr%d", i), "", CVAR_ARCHIVE);
+
 	// load custom menus
 	UI_LoadScript ();
 

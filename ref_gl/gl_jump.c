@@ -13,7 +13,7 @@ void GL_JumpReset (void)
 	jump_game = jump_origin_draw = jump_origin_size = jump_origin_width = NULL;
 }
 
-static void GL_JumpOriginSettings (void)
+void GL_JumpOriginRegister (void)
 {
 	if (jump_game)
 		return;
@@ -29,7 +29,7 @@ void GL_JumpDrawOrigin (void)
 	int axis;
 	vec3_t point;
 
-	GL_JumpOriginSettings ();
+	GL_JumpOriginRegister ();
 	if (Q_stricmp (jump_game->string, "jump") || !jump_origin_draw->intvalue ||
 		(r_newrefdef.rdflags & RDF_NOWORLDMODEL))
 		return;

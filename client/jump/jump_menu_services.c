@@ -840,7 +840,12 @@ qboolean CL_JumpUIBuiltinAllowed (void)
 {
 	const char *kind = CL_JumpUIArgv (0), *name;
 	int i = 1;
-	if (strcmp (kind, "range") && strcmp (kind, "toggle") && strcmp (kind, "pairs") && strcmp (kind, "strings") && strcmp (kind, "values") && strcmp (kind, "field") && strcmp (kind, "select") && strcmp (kind, "select2"))
+	qboolean center = false;
+
+	if (strcmp (kind, "range") && strcmp (kind, "toggle") &&
+		strcmp (kind, "pairs") && strcmp (kind, "strings") &&
+		strcmp (kind, "values") && strcmp (kind, "field") &&
+		strcmp (kind, "select") && strcmp (kind, "select2"))
 		return true;
 
 	while (i < cmd_argc && cmd_argv[i][0] == '-')
@@ -850,8 +855,12 @@ qboolean CL_JumpUIBuiltinAllowed (void)
 			i++;
 		else if (!strcmp (option, "--show-if") || !strcmp (option, "-I"))
 			i += 2;
+		else if (!strcmp (option, "--center") || !strcmp (option, "-c"))
+			center = true;
 	}
-	name = CL_JumpUIArgv (i + 1);
+
+	/* Centered fields omit the label and start with the cvar name. */
+	name = CL_JumpUIArgv (i + (!strcmp (kind, "field") && center ? 0 : 1));
 	return *name && Cvar_IsRegistered (Cvar_FindVar (name));
 }
 

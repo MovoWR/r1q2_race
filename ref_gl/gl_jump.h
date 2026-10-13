@@ -14,6 +14,7 @@ void GL_JumpLavaBegin (void);
 void GL_JumpLavaSurface (msurface_t *surface);
 void GL_JumpLavaDraw (void);
 void GL_JumpLavaReset (void);
+void GL_JumpOriginRegister (void);
 void GL_JumpDrawOrigin (void);
 void GL_JumpReset (void);
 #endif
