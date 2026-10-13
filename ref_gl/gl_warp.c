@@ -1435,11 +1435,12 @@ static qboolean R_DrawMaterialSkies (qboolean retry)
 void MakeSkyVec (float s, float t, int axis)
 {
 	vec3_t		v, b;
+	float		distance = R_FarClip () / 2;
 	int			j, k;
 
-	b[0] = s * (gl_zfar->value / 2);
-	b[1] = t * (gl_zfar->value / 2);
-	b[2] = (gl_zfar->value / 2);
+	b[0] = s * distance;
+	b[1] = t * distance;
+	b[2] = distance;
 
 	for (j=0 ; j<3 ; j++)
 	{

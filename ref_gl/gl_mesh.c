@@ -1362,7 +1362,9 @@ void R_DrawAliasModel (entity_t *e)
 		qglLoadIdentity();
 		if (r_lefthand->value == 1.0F)
 			qglScalef (-1, 1, 1);
-		MYgluPerspective (R_GunFov (), (float)r_newrefdef.width / r_newrefdef.height, R_NearClip (), gl_zfar->value);
+		MYgluPerspective (R_GunFov (),
+			(float)r_newrefdef.width / r_newrefdef.height,
+			R_NearClip (), R_FarClip ());
 		qglMatrixMode( GL_MODELVIEW );
 
 		if (r_lefthand->value == 1.0F)
@@ -1987,7 +1989,7 @@ static void GL_MD3DrawModel (entity_t *e, int pass)
 			qglScalef (-1, 1, 1);
 		MYgluPerspective (R_GunFov (),
 			(float)r_newrefdef.width / (r_newrefdef.height ? r_newrefdef.height : 1),
-			R_NearClip (), gl_zfar->value);
+			R_NearClip (), R_FarClip ());
 		qglMatrixMode (GL_MODELVIEW);
 		if (r_lefthand->value == 1.0f)
 			qglCullFace (GL_BACK);
@@ -2869,7 +2871,7 @@ void R_DrawMD5ModelPass (entity_t *e, qboolean translucent)
 			qglScalef (-1, 1, 1);
 		MYgluPerspective (R_GunFov (),
 			(float)r_newrefdef.width / (r_newrefdef.height ? r_newrefdef.height : 1),
-			R_NearClip (), gl_zfar->value);
+			R_NearClip (), R_FarClip ());
 		qglMatrixMode (GL_MODELVIEW);
 		if (r_lefthand->value == 1.0f)
 			qglCullFace (GL_BACK);

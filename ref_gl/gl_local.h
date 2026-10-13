@@ -415,6 +415,7 @@ void	EXPORT R_Shutdown( void );
 
 void R_RenderView (refdef_t *fd);
 float R_NearClip (void);
+float R_FarClip (void);
 void R_SetModelLightLevel (float value);
 void GL_ScreenShot_f (void);
 void GL_ScreenShotJPG_f (void);

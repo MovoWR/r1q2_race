@@ -1713,6 +1713,45 @@ void R_SetupFrame (void)
 	}
 }
 
+/* Keep the whole map inside the sky box and far plane. Positive gl_zfar
+ * values retain the explicit distance override. */
+float R_FarClip (void)
+{
+	int		i;
+	double	distance = 0, extent, offset;
+	float	mins, maxs, view;
+
+	if (gl_zfar && gl_zfar->value > 0 && gl_zfar->value <= FLT_MAX)
+		return gl_zfar->value;
+	if (!r_worldmodel || (r_newrefdef.rdflags & RDF_NOWORLDMODEL))
+		return 8192;
+
+	for (i = 0; i < 3; i++)
+	{
+		mins = r_worldmodel->mins[i];
+		maxs = r_worldmodel->maxs[i];
+		view = r_newrefdef.vieworg[i];
+		if (!(mins >= -FLT_MAX && maxs <= FLT_MAX && mins <= maxs &&
+			view >= -FLT_MAX && view <= FLT_MAX))
+			return 8192;
+		/* The full map span stays constant while the camera is inside it. */
+		extent = (double)maxs - mins;
+		offset = fabs ((double)view - mins);
+		if (offset > extent)
+			extent = offset;
+		offset = fabs ((double)view - maxs);
+		if (offset > extent)
+			extent = offset;
+		distance += extent * extent;
+	}
+
+	/* MakeSkyVec places the sky at half the far distance. */
+	distance = 2 * (sqrt (distance) + 64);
+	if (distance > FLT_MAX)
+		return FLT_MAX;
+	return distance > 8192 ? (float)distance : 8192;
+}
+
 float R_NearClip (void)
 {
 	float znear = gl_znear ? gl_znear->value : 2.0f;
@@ -1761,7 +1800,7 @@ void R_SetupGL (void)
 //	yfov = 2*atan((float)r_newrefdef.height/r_newrefdef.width)*180/M_PI;
 	qglMatrixMode(GL_PROJECTION);
     qglLoadIdentity ();
-	MYgluPerspective (r_newrefdef.fov_y, screenaspect, R_NearClip (), gl_zfar->value);
+	MYgluPerspective (r_newrefdef.fov_y, screenaspect, R_NearClip (), R_FarClip ());
 
 	qglCullFace(GL_FRONT);
 
@@ -2765,7 +2804,7 @@ void R_Register( void )
 #endif
 
 	gl_znear = ri.Cvar_Get ("gl_znear", "2", 0);
-	gl_zfar = ri.Cvar_Get ("gl_zfar", "8192", 0);
+	gl_zfar = ri.Cvar_Get ("gl_zfar", "0", 0);
 	gl_hudscale = ri.Cvar_Get ("gl_hudscale", "1", 0);
 
 	cl_version = ri.Cvar_Get ("cl_version", REF_VERSION, CVAR_NOSET); 
