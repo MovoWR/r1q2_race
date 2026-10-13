@@ -37,9 +37,20 @@ jobs:
           if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '796f4b89134c4e57270b7f0d755f0fa3435b90da437b745160a49bd41c845b21') {
             throw 'OpenAL Soft source checksum mismatch'
           }
-          tar -xf $archive -C build/deps
+          Write-Host 'OpenAL Soft download and SHA-256 verification complete'
+
+      - name: Extract OpenAL Soft
+        timeout-minutes: 2
+        shell: pwsh
+        working-directory: build/deps
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -E tar xvf openal-soft-1.23.1.tar.bz2
           if ($LASTEXITCODE -ne 0) {
-            throw "OpenAL Soft extraction failed (tar exit code $LASTEXITCODE)"
+            throw "OpenAL Soft extraction failed (cmake exit code $LASTEXITCODE)"
+          }
+          if (-not (Test-Path openal-soft-1.23.1/CMakeLists.txt)) {
+            throw 'OpenAL Soft extraction did not produce the expected source directory'
           }
 
       - name: Configure OpenAL Soft
