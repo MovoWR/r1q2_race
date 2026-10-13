@@ -811,7 +811,7 @@ static qboolean Cvar_Decimal (const char *text, double *value)
 	if (*p == '-')
 		p++;
 	dot = digit = false;
-	for (; *p; p++)
+	for (; *p && *p != 'e' && *p != 'E'; p++)
 	{
 		if (*p >= '0' && *p <= '9')
 			digit = true;
@@ -822,6 +822,19 @@ static qboolean Cvar_Decimal (const char *text, double *value)
 	}
 	if (!digit)
 		return false;
+	if (*p)
+	{
+		p++;
+		if (*p == '+' || *p == '-')
+			p++;
+		if (!*p)
+			return false;
+		for (; *p; p++)
+		{
+			if (*p < '0' || *p > '9')
+				return false;
+		}
+	}
 	*value = atof (text);
 	return *value >= -FLT_MAX && *value <= FLT_MAX;
 }
@@ -858,7 +871,7 @@ static void Cvar_Inc_f (void)
 		Com_Printf ("increment is outside the native cvar range\n", LOG_GENERAL);
 		return;
 	}
-	Com_sprintf (text, sizeof (text), "%g", value);
+	Com_sprintf (text, sizeof (text), "%.17g", value);
 	Cvar_Set (var->name, text);
 }
 
