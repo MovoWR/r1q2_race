@@ -349,6 +349,7 @@ typedef struct
 	vrect_t dropRect;	/* dropdown panel bounds */
 	vrect_t *itemRects; /* per-item mouse hit rects in dropdown */
 	int dropWidth;		/* width of dropdown panel */
+	qboolean modified;
 } menuSelect_t;
 
 typedef struct

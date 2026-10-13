@@ -1343,26 +1343,20 @@ static void ControlsSetMenuItemValues( void )
 	snprintf (s_options_sensitivity_slider.buffer, sizeof(s_options_sensitivity_slider.buffer)-1, "%.3g", sensitivity->value);
 	//s_options_sensitivity_slider.curvalue	= ( sensitivity->value;
 
-	Cvar_SetValue( "cl_run", ClampCvar( 0, 1, cl_run->value ) );
-	s_options_alwaysrun_box.curvalue		= cl_run->intvalue;
+	s_options_alwaysrun_box.curvalue = (int)ClampCvar (0, 1, cl_run->value);
 
 	s_options_invertmouse_box.curvalue		= m_pitch->value < 0;
 
-	Cvar_SetValue( "lookspring", ClampCvar( 0, 1, lookspring->value ) );
-	s_options_lookspring_box.curvalue		= lookspring->intvalue;
+	s_options_lookspring_box.curvalue = (int)ClampCvar (0, 1, lookspring->value);
 
-	Cvar_SetValue( "lookstrafe", ClampCvar( 0, 1, lookstrafe->value ) );
-	s_options_lookstrafe_box.curvalue		= lookstrafe->intvalue;
+	s_options_lookstrafe_box.curvalue = (int)ClampCvar (0, 1, lookstrafe->value);
 
-	Cvar_SetValue( "freelook", ClampCvar( 0, 1, freelook->value ) );
-	s_options_freelook_box.curvalue			= freelook->intvalue;
+	s_options_freelook_box.curvalue = (int)ClampCvar (0, 1, freelook->value);
 
-	Cvar_SetValue( "crosshair", ClampCvar( 0, 3, crosshair->value ) );
-	s_options_crosshair_box.curvalue		= crosshair->intvalue;
+	s_options_crosshair_box.curvalue = (int)ClampCvar (0, 3, crosshair->value);
 
 #ifdef JOYSTICK
-	Cvar_SetValue( "in_joystick", ClampCvar( 0, 1, in_joystick->value ) );
-	s_options_joystick_box.curvalue		= in_joystick->intvalue;
+	s_options_joystick_box.curvalue = (int)ClampCvar (0, 1, in_joystick->value);
 #endif
 
 	//s_options_noalttab_box.curvalue			= win_noalttab->value;
@@ -3628,7 +3622,7 @@ static void AddressBook_MenuInit( void )
 		s_addressbook_fields[i].length			= 60;
 		s_addressbook_fields[i].visible_length	= 30;
 
-		strncpy( s_addressbook_fields[i].buffer, adr->string, sizeof (s_addressbook_fields[i].buffer));
+		Q_strncpy (s_addressbook_fields[i].buffer, adr->string, sizeof (s_addressbook_fields[i].buffer) - 1);
 
 		Menu_AddItem( &s_addressbook_menu, &s_addressbook_fields[i] );
 	}
@@ -3643,8 +3637,12 @@ const char *AddressBook_MenuKey( int key )
 
 		for ( index = 0; index < NUM_ADDRESSBOOK_ENTRIES; index++ )
 		{
+			char original[sizeof (s_addressbook_fields[index].buffer)];
+
 			Com_sprintf( buffer, sizeof( buffer ), "adr%d", index );
-			Cvar_Set( buffer, s_addressbook_fields[index].buffer );
+			Q_strncpy (original, Cvar_VariableString (buffer), sizeof (original) - 1);
+			if (strcmp (original, s_addressbook_fields[index].buffer))
+				Cvar_Set (buffer, s_addressbook_fields[index].buffer);
 		}
 	}
 	return Default_MenuKey( &s_addressbook_menu, key );
@@ -3947,8 +3945,8 @@ static qboolean PlayerConfig_MenuInit( void )
 
 	hand = Cvar_IntValue ("hand");
 
-	if ( hand < 0 || hand > 2)
-		Cvar_Set( "hand", "0" );
+	if (hand < 0 || hand > 2)
+		hand = 0;
 
 	//r1: BUFFER OVERFLOW WAS HERE
 	Q_strncpy( currentdirectory, Cvar_VariableString ("skin"), sizeof(currentdirectory)-1);
@@ -4044,7 +4042,7 @@ static qboolean PlayerConfig_MenuInit( void )
 	s_player_handedness_box.generic.name	= 0;
 	s_player_handedness_box.generic.cursor_offset = -48;
 	s_player_handedness_box.generic.callback = HandednessCallback;
-	s_player_handedness_box.curvalue = Cvar_IntValue( "hand" );
+	s_player_handedness_box.curvalue = hand;
 	s_player_handedness_box.itemnames = handedness;
 
 	for (i = 0; i < sizeof(rate_tbl) / sizeof(*rate_tbl) - 1; i++)

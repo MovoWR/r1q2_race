@@ -12,6 +12,11 @@
 #undef Cmd_ArgsFrom
 #undef Cmd_TokenizeString
 extern char *keybindings[256];
+#ifdef REF_HARD_LINKED
+qboolean GL_ImageShaderIntensity (void);
+qboolean GL_ImageColorProfileReady (void);
+qboolean GL_HardwareGammaActive (void);
+#endif
 
 static char cmd_storage[65536], cmd_args[65536], cmd_null_string[1];
 static char *cmd_argv[4096];
@@ -184,6 +189,21 @@ void CL_JumpUICompress (char *s)
 		r++;
 	}
 	*w = 0;
+}
+
+qboolean CL_JumpUIVideoRestartRequired (const cvar_t *var)
+{
+#ifdef REF_HARD_LINKED
+	/* Use active renderer state, not the requested shader or gamma cvars. */
+	if (var && GL_ImageColorProfileReady ())
+	{
+		if (!strcmp (var->name, "intensity") && GL_ImageShaderIntensity ())
+			return false;
+		if (!strcmp (var->name, "vid_gamma") && GL_HardwareGammaActive ())
+			return false;
+	}
+#endif
+	return true;
 }
 
 void CL_JumpUISet (cvar_t *var, const char *value, int from)

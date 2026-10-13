@@ -22,6 +22,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 extern cvar_t *cl_drawStrafeHelper;
 
 static bool Field_ParseColor (const char *s, color_t *color);
+static cvar_t *Menu_ItemCvar (const menuCommon_t *item);
 static const char *Menu_StatusText (menuFrameWork_t *menu, char *buffer, size_t size);
 static int Menu_StatusHeight (menuFrameWork_t *menu);
 static void Keybind_Remove (const char *cmd);
@@ -629,6 +630,7 @@ static void Select_Push (menuSelect_t *s)
 	s->open = false;
 	s->hoverIndex = -1;
 	s->curvalue = -1;
+	s->modified = false;
 
 	for (i = 0; i < s->numItems; i++)
 	{
@@ -651,10 +653,23 @@ static void Select_Pop (menuSelect_t *s)
 			g_openSelect = NULL;
 		s->open = false;
 	}
-	if (s->curvalue >= 0 && s->curvalue < s->numItems)
+	if (s->modified && s->curvalue >= 0 && s->curvalue < s->numItems)
+		Cvar_SetByVar (s->cvar, s->itemnames[s->curvalue], FROM_MENU);
+	s->modified = false;
+}
+
+static void Select_Changed (menuSelect_t *s)
+{
+	s->modified = true;
+	if (!(s->generic.flags & QMF_DEFER_COMMIT) ||
+		(s->generic.parent && s->generic.parent->live &&
+			!s->generic.parent->videoApply && !CL_JumpUIVideoRestartRequired (s->cvar)))
 	{
 		Cvar_SetByVar (s->cvar, s->itemnames[s->curvalue], FROM_MENU);
+		s->modified = false;
 	}
+	if (s->generic.change)
+		s->generic.change (&s->generic);
 }
 
 static void Select_Init (menuSelect_t *s)
@@ -821,9 +836,7 @@ static menuSound_t Select_DoEnter (menuSelect_t *s)
 		s->hoverIndex = -1;
 		if (g_openSelect == s)
 			g_openSelect = NULL;
-		Cvar_SetByVar (s->cvar, s->itemnames[s->curvalue], FROM_MENU);
-		if (s->generic.change)
-			s->generic.change (&s->generic);
+		Select_Changed (s);
 		return QMS_OUT;
 	}
 
@@ -886,9 +899,7 @@ static menuSound_t Select_Key (menuSelect_t *s, int key)
 		{
 			s->curvalue = s->numItems - 1;
 		}
-		Cvar_SetByVar (s->cvar, s->itemnames[s->curvalue], FROM_MENU);
-		if (s->generic.change)
-			s->generic.change (&s->generic);
+		Select_Changed (s);
 		return QMS_MOVE;
 	}
 	if (key == K_RIGHTARROW || key == K_KP_RIGHTARROW)
@@ -901,9 +912,7 @@ static menuSound_t Select_Key (menuSelect_t *s, int key)
 		{
 			s->curvalue = 0;
 		}
-		Cvar_SetByVar (s->cvar, s->itemnames[s->curvalue], FROM_MENU);
-		if (s->generic.change)
-			s->generic.change (&s->generic);
+		Select_Changed (s);
 		return QMS_MOVE;
 	}
 
@@ -988,7 +997,6 @@ static void Select2_Push (menuSelect2_t *s)
 
 static void Select2_Pop (menuSelect2_t *s)
 {
-	int side;
 	if (s->open)
 	{
 		if (g_openSelect == (menuSelect_t *)s)
@@ -996,11 +1004,7 @@ static void Select2_Pop (menuSelect2_t *s)
 		s->open = false;
 		s->openIdx = -1;
 	}
-	for (side = 0; side < 2; side++)
-	{
-		if (s->curvalue[side] >= 0 && s->curvalue[side] < s->numItems[side])
-			Cvar_SetByVar (s->cvar[side], s->itemnames[side][s->curvalue[side]], FROM_MENU);
-	}
+	/* Deliberate selections are saved immediately; preserve custom values on close. */
 }
 
 static void Select2_Init (menuSelect2_t *s)
@@ -1787,6 +1791,16 @@ static void Field_Push (menuField_t *f)
 static void Slider_Pop (menuSlider_t *s);
 static void Menu_LiveCommit (menuCommon_t *item);
 
+static bool Field_WasModified (const menuField_t *f)
+{
+	char original[sizeof (f->field.text)];
+
+	if (!f->cvar || f->colorPickerOnly)
+		return false;
+	Q_strlcpy (original, f->cvar->string, f->field.maxChars + 1);
+	return strcmp (f->field.text, original) != 0;
+}
+
 static void Field_Pop (menuField_t *f)
 {
 	if (f->colorPickerOnly)
@@ -1795,7 +1809,8 @@ static void Field_Pop (menuField_t *f)
 		return;
 	}
 
-	Cvar_SetByVar (f->cvar, f->field.text, FROM_MENU);
+	if (Field_WasModified (f))
+		Cvar_SetByVar (f->cvar, f->field.text, FROM_MENU);
 }
 
 static void Field_Free (menuField_t *f)
@@ -2945,7 +2960,8 @@ static void Menu_CommitItem (menuCommon_t *item)
 static void Menu_LiveCommit (menuCommon_t *item)
 {
 	if (item->parent && item->parent->live &&
-		!(item->flags & QMF_DEFER_COMMIT))
+		(!(item->flags & QMF_DEFER_COMMIT) ||
+			(!item->parent->videoApply && !CL_JumpUIVideoRestartRequired (Menu_ItemCvar (item)))))
 	{
 		Menu_CommitItem (item);
 	}
@@ -4368,7 +4384,7 @@ static menuSound_t Menu_VideoTabsKey (menuFrameWork_t *menu, int key)
 	vrect_t rects[3];
 	int i, index;
 
-	if (!menu->videoApply || !JUI_VideoTabsAvailable ())
+	if (!menu->videoApply || !JUI_VideoTabsAvailable () || SelectAnyIsOpen ())
 		return QMS_NOTHANDLED;
 	index = Menu_VideoTabIndex (menu);
 	if (key == K_TAB && Key_IsDown (K_CTRL))
@@ -4640,7 +4656,6 @@ void Menu_Layout (menuFrameWork_t *menu)
 			break;
 		case MTYPE_SELECT:
 			Select_Init (item);
-			Select_Push (item);
 			break;
 		case MTYPE_SELECT2:
 			Select2_Init (item);
@@ -5515,6 +5530,8 @@ static cvar_t *Menu_ItemCvar (const menuCommon_t *item)
 	{
 	case MTYPE_FIELD:
 		return ((const menuField_t *)item)->cvar;
+	case MTYPE_SELECT:
+		return ((const menuSelect_t *)item)->cvar;
 	case MTYPE_SLIDER:
 		return ((const menuSlider_t *)item)->cvar;
 	case MTYPE_SPINCONTROL:
@@ -5538,7 +5555,9 @@ static const char *Menu_ItemStatusText (menuFrameWork_t *menu, const menuCommon_
 	if (menu && menu->videoApply && item && Menu_ItemCvar (item))
 	{
 		const char *timing = item->flags & QMF_DEFER_COMMIT ?
-			"Choose Apply changes to use this setting; video restarts." :
+			(CL_JumpUIVideoRestartRequired (Menu_ItemCvar (item)) ?
+				"Choose Apply changes to use this setting; video restarts." :
+				"Choose Apply changes to use this setting; no video restart needed.") :
 			"Changes immediately.";
 		Q_snprintf (buffer, size, "%s%s%s", status ? status : "",
 			status && *status ? " " : "", timing);
@@ -6423,13 +6442,10 @@ static menuSound_t Menu_DefaultKey (menuFrameWork_t *m, int key)
 				{
 					if (UI_CursorInRect (&g_openSelect->itemRects[i]))
 					{
-						g_openSelect->curvalue = g_openSelect->hoverIndex;
+						g_openSelect->curvalue = i;
 						g_openSelect->open = false;
 						g_openSelect->hoverIndex = -1;
-						Cvar_SetByVar (g_openSelect->cvar,
-							g_openSelect->itemnames[g_openSelect->curvalue], FROM_MENU);
-						if (g_openSelect->generic.change)
-							g_openSelect->generic.change (&g_openSelect->generic);
+						Select_Changed (g_openSelect);
 						g_openSelect = NULL;
 						return QMS_OUT;
 					}
@@ -6683,6 +6699,8 @@ static bool Menu_VideoItemEdited (const menuCommon_t *item)
 	{
 	case MTYPE_SLIDER:
 		return ((const menuSlider_t *)item)->modified;
+	case MTYPE_SELECT:
+		return ((const menuSelect_t *)item)->modified;
 	case MTYPE_BITFIELD:
 	case MTYPE_PAIRS:
 	case MTYPE_VALUES:
@@ -6735,7 +6753,7 @@ static bool Item_WasModified (const menuCommon_t *item)
 	case MTYPE_SLIDER:
 	{
 		const menuSlider_t *s = (const menuSlider_t *)item;
-		return s->cvar && fabsf (s->curvalue - s->cvar->value) > 0.0001f;
+		return s->modified && s->cvar && fabsf (s->curvalue - s->cvar->value) > 0.0001f;
 	}
 	case MTYPE_VALUES:
 	case MTYPE_PAIRS:
@@ -6773,14 +6791,14 @@ static bool Item_WasModified (const menuCommon_t *item)
 	case MTYPE_FIELD:
 	{
 		const menuField_t *f = (const menuField_t *)item;
-		return f->cvar && strcmp (f->field.text, f->cvar->string) != 0;
+		return Field_WasModified (f);
 	}
 	case MTYPE_SELECT:
 	{
 		const menuSelect_t *s = (const menuSelect_t *)item;
 		if (!s->cvar || s->curvalue < 0 || s->curvalue >= s->numItems)
 			return false;
-		return strcmp (s->itemnames[s->curvalue], s->cvar->string) != 0;
+		return s->modified && strcmp (s->itemnames[s->curvalue], s->cvar->string) != 0;
 	}
 	case MTYPE_SELECT2:
 	{
@@ -6842,7 +6860,7 @@ qboolean Menu_VideoApply (void)
 {
 	menuFrameWork_t *menu;
 	int i;
-	qboolean changed = false;
+	qboolean need_restart = false;
 
 	LIST_FOR_EACH (menuFrameWork_t, menu, &ui_menus, entry)
 	{
@@ -6854,13 +6872,14 @@ qboolean Menu_VideoApply (void)
 			if ((item->flags & QMF_DEFER_COMMIT) && Menu_VideoItemEdited (item) &&
 				Item_WasModified (item))
 			{
+				if (CL_JumpUIVideoRestartRequired (Menu_ItemCvar (item)))
+					need_restart = true;
 				Menu_CommitItem (item);
-				changed = true;
 			}
 		}
 	}
 	Menu_VideoDiscard ();
-	if (changed)
+	if (need_restart)
 		Cbuf_AddText ("vid_restart force\n");
 	return true;
 }
@@ -6901,7 +6920,8 @@ void Menu_Pop (menuFrameWork_t *menu)
 		item = menu->items[i];
 
 		if (((menuCommon_t *)item)->flags & QMF_DEFER_COMMIT &&
-			Item_WasModified ((menuCommon_t *)item))
+			Item_WasModified ((menuCommon_t *)item) &&
+			CL_JumpUIVideoRestartRequired (Menu_ItemCvar ((menuCommon_t *)item)))
 			need_restart = true;
 
 		switch (((menuCommon_t *)item)->type)

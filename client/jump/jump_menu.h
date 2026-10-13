@@ -188,6 +188,7 @@ char *SV_GetSaveInfo (const char *slot);
 qboolean SH_GetPresetColors (const char *name, const char **accel, const char **optimal, const char **center);
 qboolean Cvar_IsRegistered (const cvar_t *var);
 qboolean CL_JumpUIBuiltinAllowed (void);
+qboolean CL_JumpUIVideoRestartRequired (const cvar_t *var);
 char *CL_JumpUIExpand (const char *text);
 void CL_JumpUIRegister (void);
 void CL_JumpUIInit (void);

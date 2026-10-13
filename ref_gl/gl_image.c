@@ -3786,6 +3786,11 @@ qboolean GL_ImageColorProfileReady (void)
 	return image_color_profile_ready;
 }
 
+qboolean GL_HardwareGammaActive (void)
+{
+	return gl_state.hwgamma && gamma_requested;
+}
+
 float GL_ImageIntensityScale (void)
 {
 	float value;

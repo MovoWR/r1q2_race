@@ -540,6 +540,7 @@ void	GL_Version_f (void);
 
 void	GL_InitImages (void);
 void GL_UpdateGamma (void);
+qboolean GL_HardwareGammaActive (void);
 qboolean GL_ImageShaderIntensity (void);
 qboolean GL_ImageColorProfileReady (void);
 float GL_ImageIntensityScale (void);

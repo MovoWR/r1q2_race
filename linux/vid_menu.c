@@ -9,6 +9,10 @@
 extern cvar_t *vid_ref;
 extern cvar_t *vid_fullscreen;
 extern cvar_t *vid_gamma;
+#ifdef REF_HARD_LINKED
+qboolean GL_ImageColorProfileReady (void);
+qboolean GL_HardwareGammaActive (void);
+#endif
 extern cvar_t *scr_viewsize;
 
 static cvar_t *gl_mode;
@@ -119,9 +123,17 @@ static void ResetDefaults( void *unused )
 static void ApplyChanges( void *unused )
 {
 	float gamma;
+	float old_picmip = gl_picmip->value;
+	float old_palettedtexture = gl_ext_palettedtexture->value;
+	qboolean gamma_restart = true;
 	int mode;
 	int width, height;
 	vid_geometry_t geometry;
+
+#ifdef REF_HARD_LINKED
+	if (GL_ImageColorProfileReady () && GL_HardwareGammaActive ())
+		gamma_restart = false;
+#endif
 
 	mode = s_mode_list[OPENGL_MENU].curvalue;
 	if (mode >= s_gl_mode_count)
@@ -195,6 +207,11 @@ static void ApplyChanges( void *unused )
 		Cvar_Set( "gl_driver", "opengl32" );
 		break;
 	}
+
+	if (strstr (vid_ref->string, "gl") &&
+		((vid_gamma->modified && gamma_restart) || gl_picmip->value != old_picmip ||
+			gl_ext_palettedtexture->value != old_palettedtexture))
+		vid_ref->modified = true;
 
 #if 0
 	/*

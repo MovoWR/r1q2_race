@@ -602,7 +602,7 @@ void JUI_Menu_Video (void)
 	}
 	video_menu.brightness.generic.type = MTYPE_SLIDER;
 	video_menu.brightness.generic.name = "Brightness";
-	video_menu.brightness.generic.status = "Move right to brighten textures. Lower gamma values are brighter. Applies with Apply changes; video restarts.";
+	video_menu.brightness.generic.status = "Move right to brighten textures. Lower gamma values are brighter.";
 	video_menu.brightness.generic.flags = QMF_DEFER_COMMIT | QMF_SHOW_VALUE;
 	video_menu.brightness.cvar = Cvar_WeakGet ("vid_gamma");
 	video_menu.brightness.minvalue = 1.3f;
