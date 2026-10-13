@@ -994,9 +994,9 @@ static qboolean Mod_ValidateClassicLightSamples (const msurface_t *surf,
 	size_t samples;
 	int maps;
 
-	/* Classic warp and style-less faces have no sample consumer. Ignore their
-	 * stale offsets, as well as offsets retained by maps without lighting. */
-	if ((surf->texinfo->flags & SURF_WARP) || surf->styles[0] == 255 ||
+	/* Classic sky and warp faces do not use lightmaps. Ignore their stale
+	 * offsets, along with style-less faces and maps without lighting. */
+	if ((surf->texinfo->flags & (SURF_SKY | SURF_WARP)) || surf->styles[0] == 255 ||
 		lightofs == -1 || !lighting_size)
 		return false;
 	if (lightofs < 0 || lightofs >= lighting_size ||
