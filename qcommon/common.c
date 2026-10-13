@@ -2418,8 +2418,7 @@ void Qcommon_Init (int argc, char **argv)
 				"Welcome to " RACE_IDENTITY ".\n"
 				"\n"
 				"  Press <ESC> to open the menu.\n"
-				"  Type connect <host> to connect to a server.\n"
-				"  View the readme at http://www.r1ch.net/forum/index.php?board=8.0\n"
+				"  Based on R1Q2 by Rich (R1CH).\n"
 				"\n",
 				LOG_GENERAL);
 

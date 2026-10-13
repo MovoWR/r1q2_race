@@ -45,6 +45,10 @@ shallow checkouts and source archives show `unknown ups`.
 
 ## License
 
+R1Q2 Race is a fork of R1Q2 by Rich (R1CH).
+The startup welcome message includes this credit.
+See [r1q2.txt](r1q2.txt) for the original author's attribution and fork requests.
+
 Original source notices are retained. See [COPYING](COPYING) for GPL terms
 and [client/jump/LICENSE](client/jump/LICENSE) for the imported strafe helper's
 MPL terms. Licenses vary by file; the preserved donor [NOTE](NOTE) records
