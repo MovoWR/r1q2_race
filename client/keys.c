@@ -412,13 +412,6 @@ static void Key_CompleteCommand (void) {
 	}
 }
 
-/*
-====================
-Key_Console
-
-Interactive line editing and console scrollback
-====================
-*/
 static void Key_ConsoleLegacy (int key)
 {
 
@@ -743,6 +736,13 @@ void Key_ConsoleCompleteLegacy (void)
 	Key_ConsoleLegacy (K_TAB);
 }
 
+/*
+====================
+Key_Console
+
+Interactive line editing and console scrollback
+====================
+*/
 void Key_Console (int key)
 {
 	Con_KeyEvent (key);
@@ -1079,14 +1079,6 @@ void Key_GenerateRepeats (void)
 	}
 }
 
-/*
-===================
-Key_Event
-
-Called by the system between frames for both key up and key down events
-Should NOT be called during an interrupt!
-===================
-*/
 /* Frozen Jump shortcuts use native server-command routing. Releases remain
  * consumed across focus changes, so a shortcut cannot start a +/- binding. */
 static qboolean Key_JumpMenuEvent (int key, qboolean down)
@@ -1128,6 +1120,14 @@ static qboolean Key_JumpMenuEvent (int key, qboolean down)
 	return true;
 }
 
+/*
+===================
+Key_Event
+
+Called by the system between frames for both key up and key down events
+Should NOT be called during an interrupt!
+===================
+*/
 void Key_Event (int key, qboolean down, uint32 time)
 {
 	char		*kb;

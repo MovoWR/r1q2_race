@@ -1354,11 +1354,6 @@ void _winkey_changed (cvar_t *cvar, char *old, char *newv)
 	}
 }
 
-/*
-============
-VID_Init
-============
-*/
 static void VID_EnableDpiAwareness (void)
 {
 	HMODULE user32 = GetModuleHandle ("user32.dll");
@@ -1377,6 +1372,11 @@ static void VID_EnableDpiAwareness (void)
 		setDpiAware ();
 }
 
+/*
+============
+VID_Init
+============
+*/
 void VID_Init (void)
 {
 	/* Newer Windows uses per-monitor awareness; older hosts retain the optional fallback. */

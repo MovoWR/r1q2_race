@@ -869,11 +869,6 @@ qboolean GetPCXInfo (const char *filename, int *width, int *height)
 	return valid;
 }
 
-/*
-==============
-LoadPCX
-==============
-*/
 
 static void LoadPCXImage (const char *filename, byte **pic, byte **palette,
 	int *width, int *height, int *bits)
@@ -964,6 +959,11 @@ failed:
 	ri.FS_FreeFile (data);
 }
 
+/*
+==============
+LoadPCX
+==============
+*/
 void LoadPCX (const char *filename, byte **pic, byte **palette, int *width, int *height)
 {
 	int bits;
@@ -1134,6 +1134,11 @@ static void R_TGAPixel (const byte *in, int bytes, byte *out)
 	}
 }
 
+/*
+=============
+LoadTGA
+=============
+*/
 void LoadTGA (const char *name, byte **pic, int *width, int *height)
 {
 	byte *data, *pixels = NULL;
@@ -1409,11 +1414,6 @@ typedef struct targaHeader_s {
 	byte			attributes;
 } targaHeader_t;*/
 
-/*
-=============
-LoadTGA
-=============
-*/
 /*void LoadTGA (char *name, byte **pic, int *width, int *height)
 {
 	int				i, columns, rows, row_inc, row, col;
@@ -2142,7 +2142,7 @@ void GL_LightScaleTexture24 (unsigned *in, int inwidth, int inheight, qboolean o
 
 /*
 ================
-R_MipMap2
+GL_MipMapLinear
 
 Operates in place, quartering the size of the texture
 Proper linear filter
@@ -2227,10 +2227,9 @@ qboolean GL_MipMap (byte *in, int width, int height)
 			x1 = width > 1 ? x0 + 1 : x0;
 			for (channel = 0; channel < 4; channel++)
 				out[channel] = (in[(y0 * width + x0) * 4 + channel] +
-								   in[(y0 * width + x1) * 4 + channel] +
-								   in[(y1 * width + x0) * 4 + channel] +
-								   in[(y1 * width + x1) * 4 + channel]) >>
-					2;
+					in[(y0 * width + x1) * 4 + channel] +
+					in[(y1 * width + x0) * 4 + channel] +
+					in[(y1 * width + x1) * 4 + channel]) >> 2;
 		}
 	}
 	return true;
@@ -2530,13 +2529,6 @@ int GL_Upload32 (unsigned *data, int width, int height, qboolean mipmap, int bpp
 }
 
 /*
-===============
-GL_Upload8
-
-Returns has_alpha
-===============
-*/
-/*
 static qboolean IsPowerOf2( int value )
 {
 	int i = 1;
@@ -2578,6 +2570,13 @@ static void GL_Unpack8 (unsigned *trans, const byte *data, int width, int height
 	}
 }
 
+/*
+===============
+GL_Upload8
+
+Returns has_alpha
+===============
+*/
 int GL_Upload8 (byte *data, int width, int height, qboolean mipmap, image_t *image)
 {
 	unsigned *trans;

@@ -2394,13 +2394,6 @@ static void R_ApplyLightMode (void)
 	r_newrefdef.lightstyles = styles;
 }
 
-/*
-================
-R_RenderView
-
-r_newrefdef must be set before the first call
-================
-*/
 /* Stencil belongs to the active view target, including the bloom FBO. */
 int r_shadow_stencilbits;
 
@@ -2420,6 +2413,13 @@ static void R_SetupShadowStencil (void)
 	qglPopAttrib ();
 }
 
+/*
+================
+R_RenderView
+
+r_newrefdef must be set before the first call
+================
+*/
 void R_RenderView (refdef_t *fd)
 {
 	qboolean bloom_view;

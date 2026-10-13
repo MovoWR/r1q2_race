@@ -842,6 +842,7 @@ qboolean CL_JumpUIBuiltinAllowed (void)
 	int i = 1;
 	if (strcmp (kind, "range") && strcmp (kind, "toggle") && strcmp (kind, "pairs") && strcmp (kind, "strings") && strcmp (kind, "values") && strcmp (kind, "field") && strcmp (kind, "select") && strcmp (kind, "select2"))
 		return true;
+
 	while (i < cmd_argc && cmd_argv[i][0] == '-')
 	{
 		const char *option = cmd_argv[i++];

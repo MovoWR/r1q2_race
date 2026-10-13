@@ -1013,11 +1013,6 @@ static qboolean GL_LightGridPoint (const rlightgrid_t *grid, vec3_t p, vec3_t co
 	return true;
 }
 
-/*
-===============
-R_LightPoint
-===============
-*/
 static void R_LightPointMode (vec3_t p, vec3_t color, qboolean modern)
 {
 	vec3_t		end;
@@ -1109,6 +1104,11 @@ static void R_LightPointMode (vec3_t p, vec3_t color, qboolean modern)
 		VectorScale (color, modulate, color);
 }
 
+/*
+===============
+R_LightPoint
+===============
+*/
 void R_LightPoint (vec3_t p, vec3_t color)
 {
 	R_LightPointMode (p, color, true);

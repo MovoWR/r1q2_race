@@ -2982,11 +2982,6 @@ static void Mod_RemoveFakeSkyFaces (qboolean cubemaps)
 	}
 }
 
-/*
-=================
-Mod_LoadBrushModel
-=================
-*/
 static void Mod_RegisterInlineSkyFallbacks (model_t *mod)
 {
 	int i, j;
@@ -3013,6 +3008,11 @@ static void Mod_RegisterInlineSkyFallbacks (model_t *mod)
 	}
 }
 
+/*
+=================
+Mod_LoadBrushModel
+=================
+*/
 void Mod_LoadBrushModel (model_t *mod, void *buffer)
 {
 	int i, bad_lump = -1, qbsp, bspx_status;
@@ -5514,11 +5514,6 @@ void Mod_Free (model_t *mod)
 	memset (mod, 0, sizeof(*mod));
 }
 
-/*
-================
-Mod_FreeAll
-================
-*/
 void Mod_FreeAliasBuffers (void)
 {
 	int i;
@@ -5544,6 +5539,11 @@ void Mod_FreeMD5Buffers (void)
 				GL_FreeMD5Buffer (&mod_known[i].md5->meshes[j]);
 }
 
+/*
+================
+Mod_FreeAll
+================
+*/
 void Mod_FreeAll (void)
 {
 	int		i;

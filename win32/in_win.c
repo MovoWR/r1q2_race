@@ -1182,9 +1182,9 @@ void IN_MouseMove (usercmd_t *cmd)
 	if (m_directinput->intvalue)
 		Com_Error (ERR_FATAL, "Shit happens");
 
-	// find mouse movement
-	if (!GetCursorPos (&current_pos))
-		return;
+		// find mouse movement
+		if (!GetCursorPos (&current_pos))
+			return;
 
 	mx = (float)(current_pos.x - window_center_x);
 	my = (float)(current_pos.y - window_center_y);
@@ -1414,11 +1414,6 @@ void IN_Frame (void)
 	IN_ActivateMouse ();
 }
 
-/*
-===========
-IN_Move
-===========
-*/
 void IN_PreviewMove (usercmd_t *cmd)
 {
 	float saved_x = mouse_x, saved_y = mouse_y;
@@ -1435,6 +1430,11 @@ void IN_PreviewMove (usercmd_t *cmd)
 	current_pos = saved_pos;
 }
 
+/*
+===========
+IN_Move
+===========
+*/
 void IN_Move (usercmd_t *cmd)
 {
 	IN_MouseMove (cmd);

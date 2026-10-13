@@ -595,11 +595,6 @@ void V_Gun_Model_f (void)
 //============================================================================
 
 
-/*
-=================
-SCR_DrawCrosshair
-=================
-*/
 static float V_CrosshairValue (cvar_t *var, float min, float max, float fallback)
 {
 	float value = var ? var->value : fallback;
@@ -626,6 +621,11 @@ static void V_CrosshairHealthColor (int health, float *rgba)
 											   (health - 66) / 33.0f;
 }
 
+/*
+=================
+SCR_DrawCrosshair
+=================
+*/
 __inline void SCR_DrawCrosshair (void)
 {
 	int x, y, width, height;

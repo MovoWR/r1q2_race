@@ -767,11 +767,6 @@ static qboolean GL_DrawDecoupledSurface (msurface_t *surf, image_t *image,
 	return true;
 }
 
-/*
-================
-R_RenderBrushPoly
-================
-*/
 static void GL_DrawVertexlitPoly (glpoly_t *p, unsigned texnum, float scroll, float scroll_t,
 	qboolean alpha_texture, GLuint glowtexnum)
 {
@@ -850,6 +845,11 @@ static qboolean GL_DrawLegacyLightmapView (msurface_t *surf)
 	return true;
 }
 
+/*
+================
+R_RenderBrushPoly
+================
+*/
 void R_RenderBrushPoly (msurface_t *fa)
 {
 	int			maps;
@@ -1018,15 +1018,6 @@ dynamic:
 }
 
 
-/*
-================
-R_DrawAlphaSurfaces
-
-Draw water surfaces and windows.
-The BSP tree is waled front to back, so unwinding the chain
-of alpha_surfaces will draw back to front, giving proper ordering.
-================
-*/
 static void GL_DrawAlphaSurface (msurface_t *s, int frame, float intens)
 {
 	image_t *image = R_TextureAnimation (s->texinfo, frame);
@@ -1056,6 +1047,15 @@ static void GL_DrawAlphaSurface (msurface_t *s, int frame, float intens)
 		DrawGLPoly (s->polys, false);
 }
 
+/*
+================
+R_DrawAlphaSurfaces
+
+Draw water surfaces and windows.
+The BSP tree is waled front to back, so unwinding the chain
+of alpha_surfaces will draw back to front, giving proper ordering.
+================
+*/
 void R_DrawAlphaSurfaces (void)
 {
 	msurface_t *s;
@@ -3518,11 +3518,6 @@ void GL_BuildPolygonFromSurface(msurface_t *fa)
 	//poly->numverts = lnumverts;
 }
 
-/*
-========================
-GL_CreateSurfaceLightmap
-========================
-*/
 static qboolean GL_CreateSurfaceLightmapInternal (msurface_t *surf, qboolean optional)
 {
 	int		smax, tmax;
@@ -3593,6 +3588,11 @@ static qboolean GL_CreateSurfaceLightmapInternal (msurface_t *surf, qboolean opt
 	return true;
 }
 
+/*
+========================
+GL_CreateSurfaceLightmap
+========================
+*/
 void GL_CreateSurfaceLightmap (msurface_t *surf)
 {
 	GL_CreateSurfaceLightmapInternal (surf, false);

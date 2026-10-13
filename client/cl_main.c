@@ -1058,14 +1058,6 @@ void CL_Connect_f (void)
 	cls.connect_time = -99999;	// CL_CheckForResend() will fire immediately
 }
 
-/*
-=====================
-CL_Rcon_f
-
-  Send the rest of the command line over as
-  an unconnected command.
-=====================
-*/
 /* Console RCON retains the native response admission window and wire format. */
 void CL_SendConsoleRcon (const netadr_t *address, const char *password, const char *command)
 {
@@ -1107,6 +1099,14 @@ void CL_SendConsoleChat (const char *command, const char *text)
 	CL_TimingTrigger (CL_TIMING_STRINGCMD);
 }
 
+/*
+=====================
+CL_Rcon_f
+
+  Send the rest of the command line over as
+  an unconnected command.
+=====================
+*/
 void CL_Rcon_f (void)
 {
 	netadr_t to;

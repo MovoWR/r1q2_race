@@ -229,13 +229,6 @@ float	r_turbsin[] =
 //#define TURBSCALE (256.0 / (2 * M_PI))
 #define TURBSCALE	40.74366543152520595686852575586922507168212759145447757326835836930F
 
-/*
-=============
-EmitWaterPolys
-
-Does a water warp on the pre-fragmented glpoly_t chain
-=============
-*/
 /* Subdivided water polygons retain raw BSP texture axes. Donor UVs use the
  * original wall image dimensions, even when the animated upload differs. */
 void GL_WaterTexCoord (const msurface_t *fa, const float *v, float *s, float *t)
@@ -245,6 +238,13 @@ void GL_WaterTexCoord (const msurface_t *fa, const float *v, float *s, float *t)
 	*t = (v[4] + fa->texinfo->vecs[1][3]) * scale / fa->texinfo->image->height;
 }
 
+/*
+=============
+EmitWaterPolys
+
+Does a water warp on the pre-fragmented glpoly_t chain
+=============
+*/
 void EmitWaterPolys (msurface_t *fa, image_t *image)
 {
 	qboolean bloom_shader, gpu_warp = false;
@@ -595,11 +595,6 @@ void ClipSkyPolygon (int nump, vec3_t vecs, int stage)
 	ClipSkyPolygon (newc[1], newv[1][0], stage+1);
 }
 
-/*
-=================
-R_AddSkySurface
-=================
-*/
 static void R_AddGlobalSkySurface (msurface_t *fa)
 {
 	int			i;
@@ -628,6 +623,11 @@ static void R_AddGlobalSkySurface (msurface_t *fa)
 	}
 }
 
+/*
+=================
+R_AddSkySurface
+=================
+*/
 void R_AddSkySurface (msurface_t *fa)
 {
 	if (sky_cube_requested && fa->texinfo && fa->texinfo->sky_material != SKY_MATERIAL_DEFAULT)

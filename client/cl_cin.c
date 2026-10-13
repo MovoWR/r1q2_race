@@ -288,13 +288,6 @@ int	SmallestNode1 (int numhnodes)
 }
 
 
-/*
-==================
-Huff1TableInit
-
-Reads the 64k counts table and initializes the node trees
-==================
-*/
 static qboolean SCR_CinematicRead (void *buffer, int size)
 {
 	if (size < 0 || size > cin.file_remaining ||
@@ -304,6 +297,13 @@ static qboolean SCR_CinematicRead (void *buffer, int size)
 	return true;
 }
 
+/*
+==================
+Huff1TableInit
+
+Reads the 64k counts table and initializes the node trees
+==================
+*/
 qboolean Huff1TableInit (void)
 {
 	int		prev;

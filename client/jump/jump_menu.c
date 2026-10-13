@@ -2331,11 +2331,6 @@ static void Field_Init (menuField_t *f)
 	}
 }
 
-/*
-=================
-Field_Draw
-=================
-*/
 static bool Field_DrawFocusFill (const menuField_t *f)
 {
 	menuFrameWork_t *menu = f->generic.parent;
@@ -2344,6 +2339,11 @@ static bool Field_DrawFocusFill (const menuField_t *f)
 		(menu->focusStyleSet || UI_MenuStyleFocusFill ());
 }
 
+/*
+=================
+Field_Draw
+=================
+*/
 static void Field_Draw (menuField_t *f)
 {
 	int flags = f->generic.uiFlags;
@@ -2517,11 +2517,6 @@ static void SpinControl_Free (menuSpinControl_t *s)
 	Z_Free (s);
 }
 
-/*
-=================
-SpinControl_Init
-=================
-*/
 static int SpinControl_ValueOffset (const menuSpinControl_t *s)
 {
 	int width = 11;
@@ -2537,6 +2532,11 @@ static int SpinControl_ValueOffset (const menuSpinControl_t *s)
 	return (width + 2) * CHAR_WIDTH;
 }
 
+/*
+=================
+SpinControl_Init
+=================
+*/
 void SpinControl_Init (menuSpinControl_t *s)
 {
 	int maxLength, length;
@@ -5494,11 +5494,6 @@ static void Menu_DrawStatus (menuFrameWork_t *menu)
 	Menu_SetNormalColor ();
 }
 
-/*
-=================
-Menu_Draw
-=================
-*/
 static int Menu_TitleX (menuFrameWork_t *menu)
 {
 	if (menu->halign == MENU_HALIGN_CENTER)
@@ -5954,6 +5949,11 @@ static void Menu_DrawFocusMarker (menuFrameWork_t *menu, const menuCommon_t *ite
 	Menu_DrawFocusBox (row.x, row.y, row.width, row.height, markerWidth);
 }
 
+/*
+=================
+Menu_Draw
+=================
+*/
 void Menu_Draw (menuFrameWork_t *menu)
 {
 	void *item;

@@ -529,14 +529,6 @@ void GL_LerpVerts( int nverts, dtrivertx_t *v, dtrivertx_t *ov, dtrivertx_t *ver
 
 }
 
-/*
-=============
-GL_DrawAliasFrameLerp
-
-interpolates between two frames and origins
-FIXME: batch lerp all vertexes
-=============
-*/
 /* Q2PRO weapon projection, applied only to this draw's private matrix. */
 static float R_GunFov (void)
 {
@@ -597,6 +589,14 @@ static void GL_ShowAliasTris (const dmdl_t *header)
 	GL_ShowTrisEnd ();
 }
 
+/*
+=============
+GL_DrawAliasFrameLerp
+
+interpolates between two frames and origins
+FIXME: batch lerp all vertexes
+=============
+*/
 void GL_DrawAliasFrameLerp (dmdl_t *paliashdr, float backlerp, GLuint glowtexnum)
 {
 	float 	l;

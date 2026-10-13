@@ -311,6 +311,13 @@ static void CL_CommandSyncView (pmove_new_t *pm, int current)
 		cl.predicted_origin[i] = cl.cmdsync_view.start[i] + fraction * (cl.cmdsync_view.end[i] - cl.cmdsync_view.start[i]);
 }
 
+/*
+=================
+CL_PredictMovement
+
+Sets cl.predicted_origin and cl.predicted_angles
+=================
+*/
 void CL_PredictMovement (void)
 {
 	static int	last_step_frame = 0;

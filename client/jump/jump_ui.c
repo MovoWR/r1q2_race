@@ -142,11 +142,9 @@ static const uiMenuCustomColor_t ui_menu_custom_color_defs[UI_MENU_COLOR_COUNT] 
 
 /*
 =================
-UI_PushMenu
+UI_Resize
 =================
 */
-
-
 static void UI_Resize (void)
 {
 	int i;
@@ -192,13 +190,6 @@ void UI_ForceMenuOff (void)
 	if (owned)
 		M_JumpPopMenu ();
 }
-
-/*
-=================
-UI_PopMenu
-=================
-*/
-
 
 /*
 =================
@@ -1373,7 +1364,7 @@ static void UI_MenuFocusWidth_g (genctx_t *ctx)
 
 /*
 =================
-UI_Init
+CL_JumpUIInit
 =================
 */
 void CL_JumpUIInit (void)
@@ -1476,7 +1467,7 @@ void CL_JumpUIInit (void)
 
 /*
 =================
-UI_Shutdown
+CL_JumpUIShutdown
 =================
 */
 void CL_JumpUIShutdown (void)
