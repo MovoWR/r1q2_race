@@ -49,6 +49,7 @@ void IN_ReadKeyboard (void);
 
 void IN_Activate (qboolean active);
 void IN_MouseEvent (int mstate);
+void IN_RawMouseEvent (LPARAM raw_input);
 
 extern int		window_center_x, window_center_y;
 extern RECT		window_rect;

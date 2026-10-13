@@ -48,6 +48,10 @@ cvar_t *win_noalttab;
 #define WM_MOUSEWHEEL (WM_MOUSELAST+1)  // message that will be supported by the OS 
 #endif
 
+#ifndef WM_INPUT
+#define WM_INPUT 0x00FF
+#endif
+
 static UINT MSH_MOUSEWHEEL;
 
 // Console variables that we need to access from this module
@@ -408,6 +412,11 @@ LRESULT CALLBACK MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 	switch (uMsg)
 	{
+	case WM_INPUT:
+		IN_RawMouseEvent (lParam);
+		/* Foreground Raw Input requires DefWindowProc cleanup. */
+		return DefWindowProc (hWnd, uMsg, wParam, lParam);
+
 	case WM_MOUSEWHEEL:
 		/*
 		** this chunk of code theoretically only works under NT4 and Win98

@@ -34,6 +34,7 @@ cvar_t	*in_initjoy;
 cvar_t	*in_dinputkeyboard;
 
 cvar_t	*m_directinput;
+static cvar_t *m_rawinput;
 
 cvar_t	*k_repeatrate;
 cvar_t	*k_repeatdelay;
@@ -147,6 +148,8 @@ float		mouse_x, mouse_y, old_mouse_x, old_mouse_y;//, mx_accum, my_accum;
 static qboolean mouse_preview;
 /* Relative immediate reads consume motion; retain raw counts until commitment. */
 static LONG preview_mouse_x, preview_mouse_y, preview_mouse_z;
+static qboolean raw_mouse_active;
+static int64 raw_mouse_x, raw_mouse_y;
 
 int			old_x, old_y;
 
@@ -170,6 +173,64 @@ LPDIRECTINPUTDEVICE8	g_pKeyboard = NULL;
 
 #define	DX_KEYBOARD_BUFFER_SIZE	16
 #define	DX_MOUSE_BUFFER_SIZE	128
+
+static qboolean IN_InitRawMouse (void)
+{
+	RAWINPUTDEVICE device;
+
+	memset (&device, 0, sizeof (device));
+	device.usUsagePage = 1;
+	device.usUsage = 2;
+	/* Follow the foreground window, including after a renderer restart.
+	 * Keep legacy messages for buttons, wheel and the menu cursor. */
+	if (!RegisterRawInputDevices (&device, 1, sizeof (device)))
+	{
+		Com_Printf ("Raw mouse registration failed (%lu), using legacy input.\n",
+			LOG_CLIENT, GetLastError ());
+		return false;
+	}
+
+	return true;
+}
+
+static void IN_ShutdownRawMouse (void)
+{
+	RAWINPUTDEVICE device;
+
+	if (raw_mouse_active)
+	{
+		memset (&device, 0, sizeof (device));
+		device.usUsagePage = 1;
+		device.usUsage = 2;
+		device.dwFlags = RIDEV_REMOVE;
+		if (!RegisterRawInputDevices (&device, 1, sizeof (device)))
+			Com_Printf ("Raw mouse removal failed (%lu).\n", LOG_CLIENT, GetLastError ());
+	}
+
+	raw_mouse_active = false;
+	raw_mouse_x = raw_mouse_y = 0;
+}
+
+void IN_RawMouseEvent (LPARAM raw_input)
+{
+	RAWINPUT	raw;
+	UINT		size;
+
+	if (!raw_mouse_active || !mouseactive || !in_appactive || CL_JumpUIActive ())
+		return;
+
+	size = sizeof (raw);
+	if (GetRawInputData ((HRAWINPUT)raw_input, RID_INPUT, &raw, &size,
+		sizeof (raw.header)) != sizeof (raw))
+		return;
+	if (raw.header.dwType != RIM_TYPEMOUSE ||
+		(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE))
+		return;
+
+	/* Previews read these counts; only a real command consumes them. */
+	raw_mouse_x += raw.data.mouse.lLastX;
+	raw_mouse_y += raw.data.mouse.lLastY;
+}
 
 qboolean IN_NeedDInput (void)
 {
@@ -1028,6 +1089,9 @@ Called when the window loses focus
 void IN_DeactivateMouse (void)
 {
 	preview_mouse_x = preview_mouse_y = preview_mouse_z = 0;
+	raw_mouse_x = raw_mouse_y = 0;
+	if (raw_mouse_active)
+		old_mouse_x = old_mouse_y = 0;
 	if (!mouseinitialized)
 		return;
 
@@ -1042,7 +1106,10 @@ void IN_DeactivateMouse (void)
 	}
 
 	if (restore_spi)
+	{
 		SystemParametersInfo (SPI_SETMOUSE, 0, originalmouseparms, 0);
+		restore_spi = false;
+	}
 
 	ClipCursor (NULL);
 	ReleaseCapture ();
@@ -1066,8 +1133,21 @@ void IN_StartupMouse (void)
 {
 	//cvar_t		*cv;
 
+	raw_mouse_x = raw_mouse_y = 0;
+	old_mouse_x = old_mouse_y = 0;
+
 	if (!in_mouse->intvalue)
 		return;
+
+	if (m_rawinput->intvalue && IN_InitRawMouse ())
+	{
+		raw_mouse_active = true;
+		mouseparmsvalid = false;
+		mouseinitialized = true;
+		if (!cl_quietstartup->intvalue || developer->intvalue)
+			Com_Printf ("...using Raw Input mouse\n", LOG_CLIENT);
+		return;
+	}
 
 	if (m_directinput->intvalue)
 	{
@@ -1179,15 +1259,25 @@ void IN_MouseMove (usercmd_t *cmd)
 		return;
 	}
 
-	if (m_directinput->intvalue)
-		Com_Error (ERR_FATAL, "Shit happens");
+	if (raw_mouse_active)
+	{
+		mx = (float)raw_mouse_x;
+		my = (float)raw_mouse_y;
+		if (!mouse_preview)
+			raw_mouse_x = raw_mouse_y = 0;
+	}
+	else
+	{
+		if (m_directinput->intvalue)
+			Com_Error (ERR_FATAL, "Shit happens");
 
 		// find mouse movement
 		if (!GetCursorPos (&current_pos))
 			return;
 
-	mx = (float)(current_pos.x - window_center_x);
-	my = (float)(current_pos.y - window_center_y);
+		mx = (float)(current_pos.x - window_center_x);
+		my = (float)(current_pos.y - window_center_y);
+	}
 
 #if 0
 	if (!mx && !my)
@@ -1226,8 +1316,8 @@ void IN_MouseMove (usercmd_t *cmd)
 		cmd->forwardmove -= (int)(m_forward->value * mouse_y);
 	}
 
-	// force the mouse to the center, so there's room to move
-	if (!mouse_preview && (FLOAT_NE_ZERO (mx) || FLOAT_NE_ZERO (my)))
+	// force the legacy mouse to the center, so there's room to move
+	if (!raw_mouse_active && !mouse_preview && (FLOAT_NE_ZERO (mx) || FLOAT_NE_ZERO (my)))
 	{
 		//Com_Printf ("******** SETCURSORPOS\n");
 		SetCursorPos (window_center_x, window_center_y);
@@ -1270,6 +1360,7 @@ void IN_Init (void)
 
 	m_show					= Cvar_Get ("m_show",					"0",		0);
 	m_directinput			= Cvar_Get ("m_directinput",			"0",		0);
+	m_rawinput				= Cvar_Get ("m_rawinput",				"0",		CVAR_ARCHIVE);
     in_mouse				= Cvar_Get ("in_mouse",					"1",		0);
 
 	in_dinputkeyboard		= Cvar_Get ("in_dinputkeyboard",		"0",		0);
@@ -1286,6 +1377,7 @@ void IN_Init (void)
 	m_winxp_fix->changed = IN_CvarModified;
 	in_mouse->changed = IN_CvarModified;
 	m_directinput->changed = IN_CvarModified;
+	m_rawinput->changed = IN_CvarModified;
 
 #ifdef JOYSTICK
 	// joystick variables
@@ -1350,6 +1442,7 @@ IN_Shutdown
 void IN_Shutdown (void)
 {
 	IN_DeactivateMouse ();
+	IN_ShutdownRawMouse ();
 	IN_FreeDirectInput ();
 }
 

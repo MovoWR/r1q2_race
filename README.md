@@ -8,6 +8,7 @@ Quake II and Jump assets are supplied separately. The default game is `jump`;
 use `+set game baseq2` for the original game.
 
 Movement prediction uses `cl_async 2` by default.
+On Windows, set `m_rawinput 1` to enable Raw Input mouse movement.
 `gl_zfar 0` sizes the far clip distance to the map; positive values override it.
 
 ## Build
