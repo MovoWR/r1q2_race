@@ -24,16 +24,23 @@ jobs:
           arch: amd64_x86
 
       - name: Download OpenAL Soft
+        timeout-minutes: 8
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force build/deps | Out-Null
           $archive = 'build/deps/openal-soft-1.23.1.tar.bz2'
-          Invoke-WebRequest https://openal-soft.org/openal-releases/openal-soft-1.23.1.tar.bz2 -OutFile $archive
+          curl.exe --fail --location --show-error --connect-timeout 20 --max-time 120 --retry 2 --retry-delay 5 --retry-max-time 360 --output $archive https://openal-soft.org/openal-releases/openal-soft-1.23.1.tar.bz2
+          if ($LASTEXITCODE -ne 0) {
+            throw "OpenAL Soft download failed (curl exit code $LASTEXITCODE)"
+          }
           if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '796f4b89134c4e57270b7f0d755f0fa3435b90da437b745160a49bd41c845b21') {
             throw 'OpenAL Soft source checksum mismatch'
           }
           tar -xf $archive -C build/deps
+          if ($LASTEXITCODE -ne 0) {
+            throw "OpenAL Soft extraction failed (tar exit code $LASTEXITCODE)"
+          }
 
       - name: Configure OpenAL Soft
         shell: pwsh
