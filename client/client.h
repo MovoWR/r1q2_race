@@ -488,7 +488,6 @@ extern	cvar_t	*cl_maxfps;
 qboolean CL_AsyncCommandSync (void);
 qboolean CL_CommandWaitPending (void);
 void CL_CommandWait (void);
-void CL_CommandWaitForSend (qboolean jump_down);
 float CL_CommandFrameTime (void);
 
 extern	cvar_t	*cl_protocol;

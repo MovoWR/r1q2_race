@@ -119,31 +119,19 @@ static void CL_JumpFpsShortcut_f (void)
 	}
 }
 
-static void CL_JumpDoubleJumpWait_f (void)
-{
-	if (!CL_JumpEnabled ())
-		return;
-	CL_CommandWaitForSend (atoi (Cmd_Argv (1)) != 0);
-	Cbuf_InsertText ("wait\n");
-}
-
 static void CL_JumpDoubleJump_f (void)
 {
 	if (!CL_JumpEnabled ())
 		return;
-	if (Cmd_Argv (0)[0] == '+' && cl_async && cl_async->intvalue == 1)
-		Cbuf_InsertText ("+moveup; _dj_wait 1; -moveup; _dj_wait 0; +moveup\n");
-	else
-		Cbuf_InsertText (Cmd_Argv (0)[0] == '+' ?
-				"+moveup; wait; -moveup; wait; +moveup\n" :
-				"-moveup\n");
+	Cbuf_InsertText (Cmd_Argv (0)[0] == '+' ?
+			"+moveup; wait; -moveup; wait; +moveup\n" :
+			"-moveup\n");
 }
 
 static void CL_JumpDoubleJumpCommands (void)
 {
 	const char *existing;
 
-	Cmd_AddCommand ("_dj_wait", CL_JumpDoubleJumpWait_f);
 	existing = Cmd_CompleteCommandOld ("+dj");
 	if (!existing || strcmp (existing, "+dj"))
 		Cmd_AddCommand ("+dj", CL_JumpDoubleJump_f);

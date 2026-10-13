@@ -92,8 +92,6 @@ cvar_t	*cl_async;
 extern uint32 sys_frame_time;
 #endif
 static qboolean command_wait_pending;
-static int command_wait_upmove = -1;
-static int command_wait_sends;
 static float command_frame_time;
 static int synchronous_delta;
 
@@ -104,25 +102,13 @@ qboolean CL_AsyncCommandSync (void)
 
 qboolean CL_CommandWaitPending (void)
 {
-	return cl_async && (cl_async->intvalue == 1 || CL_AsyncCommandSync ()) && command_wait_pending;
+	return CL_AsyncCommandSync () && command_wait_pending;
 }
 
 void CL_CommandWait (void)
 {
 	if (CL_AsyncCommandSync ())
 		command_wait_pending = true;
-}
-
-/* Used by the built-in double-jump macro to retain each input phase until
- * a command is sent. Ordinary mode 1 wait aliases keep their legacy behavior. */
-void CL_CommandWaitForSend (qboolean jump_down)
-{
-	if (cl_async && (cl_async->intvalue == 1 || CL_AsyncCommandSync ()))
-	{
-		command_wait_pending = true;
-		command_wait_upmove = jump_down;
-		command_wait_sends = 0;
-	}
 }
 
 float CL_CommandFrameTime (void)
@@ -1198,7 +1184,6 @@ void CL_ClearState (void)
 	cvar_t	*gameDirHack;
 
 	command_wait_pending = false;
-	command_wait_upmove = -1;
 	command_frame_time = 0;
 	CL_TranslateCancel ();
 	CL_TimingEnd ();
@@ -3523,7 +3508,6 @@ void _maxfps_changed (cvar_t *var, char *oldValue, char *newValue)
 void _async_changed (cvar_t *var, char *oldValue, char *newValue)
 {
 	command_wait_pending = false;
-	command_wait_upmove = -1;
 	command_frame_time = 0;
 	if (var->intvalue == 0)
 	{
@@ -4513,16 +4497,7 @@ void CL_Frame (int msec)
 			/* Populate every sent command before the next packet can ACK it,
 			 * including when rendering is slower than command transmission. */
 			CL_PredictMovement ();
-		}
-		/* Zero-msec sends are ignored by the server. Mode 1 can also
-		 * retain input accumulated before a macro phase changed: wait for
-		 * a nonempty command containing the requested jump state. After
-		 * two commands the old accumulator is gone; do not block console
-		 * input indefinitely if jump is disabled or cancelled by +movedown. */
-		if (command_sync || cls.state != ca_active || (cl.cmd.msec && (command_wait_upmove < 0 || (cl.cmd.upmove >= 10) == command_wait_upmove || ++command_wait_sends >= 2)))
-		{
 			command_wait_pending = false;
-			command_wait_upmove = -1;
 		}
 		CL_LoadDeferredModels();
 
