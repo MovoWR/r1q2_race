@@ -17,6 +17,8 @@ void CL_TimingFrame (int packet_msec, qboolean scheduled);
 void CL_TimingDecision (qboolean requested, qboolean userinfo);
 void CL_TimingTrigger (unsigned reason);
 void CL_TimingRefresh (void);
+void CL_TimingKey (uint32 timestamp);
+void CL_TimingRender (qboolean begin);
 int CL_TimingTransmit (int length, const byte *data, const usercmd_t *cmd);
 void CL_TimingEnd (void);
 

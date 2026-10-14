@@ -96,6 +96,7 @@ void KeyDown (kbutton_t *b)
 	// save timestamp
 	c = Cmd_Argv(2);
 	b->downtime = atoi(c);
+	CL_TimingKey (b->downtime);
 	if (!b->downtime)
 		b->downtime = sys_frame_time - 100;
 
@@ -133,6 +134,7 @@ void KeyUp (kbutton_t *b)
 	// save timestamp
 	c = Cmd_Argv(2);
 	uptime = atoi(c);
+	CL_TimingKey (uptime);
 	if (uptime)
 		b->msec += uptime - b->downtime;
 	else

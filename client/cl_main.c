@@ -4288,7 +4288,9 @@ void CL_Synchronous_Frame (int msec)
 	CL_LoadDeferredModels();
 
 	// update the screen
+	CL_TimingRender (true);
 	SCR_UpdateScreen ();
+	CL_TimingRender (false);
 
 	// update audio
 	S_Update (cl.refdef.vieworg, cl.v_forward, cl.v_right, cl.v_up);
@@ -4574,7 +4576,9 @@ void CL_Frame (int msec)
 			LE_RunLocalEnts ();
 
 		// update the screen
+		CL_TimingRender (true);
 		SCR_UpdateScreen ();
+		CL_TimingRender (false);
 
 		// update audio
 		S_Update (cl.refdef.vieworg, cl.v_forward, cl.v_right, cl.v_up);
