@@ -1197,6 +1197,9 @@ void Key_Event (int key, qboolean down, uint32 time)
 	// menu key is hardcoded, so the user can never unbind it
 	if (key == K_ESCAPE)
 	{
+		// A held Escape must not close the menu it just opened.
+		if (down && key_repeats[key] > 1)
+			return;
 		if (CL_JumpUIKey (key, down))
 			return;
 		if (!down)
