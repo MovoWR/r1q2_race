@@ -283,7 +283,7 @@ static void CL_CommandSyncView (pmove_new_t *pm, int current)
 	float		distance = 0, slope, limit;
 	vec3_t		origin, previous, velocity;
 	pmove_new_t	forecast;
-	qboolean	jump;
+	qboolean	jump, changed;
 	usercmd_t	*cmd = &cl.cmds[slot];
 
 	for (i = 0; i < 3; i++)
@@ -310,10 +310,30 @@ static void CL_CommandSyncView (pmove_new_t *pm, int current)
 			msec = 200;
 	}
 
-	if (!cl.cmdsync_view.valid || cl.cmdsync_view.sequence != current ||
+	changed = !cl.cmdsync_view.valid || cl.cmdsync_view.sequence != current ||
 		cl.cmdsync_view.msec != msec ||
-		memcmp (&cl.cmdsync_view.base, &pm->s, sizeof (pm->s)))
+		memcmp (&cl.cmdsync_view.base, &pm->s, sizeof (pm->s));
+	if (changed || cl.cmdsync_view.serverframe != cl.frame.serverframe)
 	{
+		forecast = *pm;
+		forecast.cmd = *cmd;
+		if (!cl_timedemo->intvalue)
+			forecast.cmd.msec = (byte)((msec / 1000.0f) * 1000);
+		if (!forecast.cmd.msec)
+			forecast.cmd.msec = 1;
+		Pmove (&forecast);
+		cl.cmdsync_view.serverframe = cl.frame.serverframe;
+		/* Movers can change the forecast without changing player state.
+		 * Only the endpoint and vertical velocity shape this curve; flags
+		 * such as ducking must not restart an otherwise unchanged view. */
+		if (!changed &&
+			!memcmp (cl.cmdsync_view.forecast.origin, forecast.s.origin, sizeof (forecast.s.origin)) &&
+			cl.cmdsync_view.forecast.velocity[2] == forecast.s.velocity[2])
+		{
+			cl.cmdsync_view.forecast = forecast.s;
+			CL_CommandSyncViewSample (cl.predicted_origin, velocity);
+			return;
+		}
 		VectorCopy (origin, previous);
 		VectorClear (velocity);
 		if (cl.cmdsync_view.valid && distance <= 80 &&
@@ -322,18 +342,12 @@ static void CL_CommandSyncView (pmove_new_t *pm, int current)
 		jump = (pm->s.pm_flags & PMF_JUMP_HELD) &&
 			(!cl.cmdsync_view.valid || !(cl.cmdsync_view.base.pm_flags & PMF_JUMP_HELD)) &&
 			(!cl.cmdsync_view.valid || pm->s.velocity[2] > cl.cmdsync_view.base.velocity[2]);
-		forecast = *pm;
-		forecast.cmd = *cmd;
-		if (!cl_timedemo->intvalue)
-			forecast.cmd.msec = (byte)((msec / 1000.0f) * 1000);
-		if (!forecast.cmd.msec)
-			forecast.cmd.msec = 1;
-		Pmove (&forecast);
 		cl.cmdsync_view.valid = true;
 		cl.cmdsync_view.sequence = current;
 		cl.cmdsync_view.time = cls.realtime;
 		cl.cmdsync_view.msec = msec;
 		cl.cmdsync_view.base = pm->s;
+		cl.cmdsync_view.forecast = forecast.s;
 		VectorCopy (previous, cl.cmdsync_view.start);
 		for (i = 0; i < 3; i++)
 			cl.cmdsync_view.end[i] = forecast.s.origin[i] * 0.125f;

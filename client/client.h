@@ -212,8 +212,8 @@ typedef struct client_state_s
 	struct
 	{
 		qboolean valid;
-		int sequence, time, msec;
-		pmove_state_t base;
+		int sequence, time, msec, serverframe;
+		pmove_state_t base, forecast;
 		vec3_t start, end;
 		vec3_t start_velocity, end_velocity;
 	} cmdsync_view; // presentation only; cleared with client state
