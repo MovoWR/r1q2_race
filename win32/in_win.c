@@ -1511,8 +1511,25 @@ void IN_PreviewMove (usercmd_t *cmd)
 {
 	float saved_x = mouse_x, saved_y = mouse_y;
 	float saved_old_x = old_mouse_x, saved_old_y = old_mouse_y;
+	float fraction;
+	int msec;
 	POINT saved_pos = current_pos;
 
+	if (m_filter->intvalue && !g_pMouse)
+	{
+		/* CL_PreviewCmd supplies the time since the last command. Spread the
+		 * previous sample over the next tick instead of adding it all at once. */
+		msec = (int)ceilf (1000.0f / cl_maxfps->value);
+		if (msec < 1)
+			msec = 1;
+		if (msec > 200)
+			msec = 200;
+		fraction = cls.frametime * 1000 / msec;
+		if (fraction > 1)
+			fraction = 1;
+		old_mouse_x *= fraction;
+		old_mouse_y *= fraction;
+	}
 	mouse_preview = true;
 	IN_MouseMove (cmd);
 	mouse_preview = false;
