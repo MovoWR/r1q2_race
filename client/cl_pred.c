@@ -472,9 +472,9 @@ void CL_PredictMovement (void)
 
 	pm.enhanced = cl.enhancedServer;
 	pm.strafehack = cl.strafeHack;
-	jump_command = CL_JumpLastCommand (ack, current, cl_async->intvalue != 0 && !command_sync);
+	jump_command = CL_JumpLastCommand (ack, current, CL_AsyncMode () != 0 && !command_sync);
 
-	if (cl_async->intvalue && !command_sync)
+	if (CL_AsyncMode () && !command_sync)
 	{
 		// run frames
 		while (++ack <= current) //jec - changed '<' to '<=' cause current is our pending cmd.

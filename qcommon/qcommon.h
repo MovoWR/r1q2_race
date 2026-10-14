@@ -1194,6 +1194,7 @@ CLIENT / SERVER SYSTEMS
 
 void CL_Init (void);
 void CL_Drop (qboolean skipdisconnect, qboolean nonerror);
+void CL_AbortFrame (void);
 void CL_Shutdown (void);
 void CL_Frame (int msec);
 void Con_Print (const char *text);

@@ -94,10 +94,22 @@ extern uint32 sys_frame_time;
 static qboolean command_wait_pending;
 static float command_frame_time;
 static int synchronous_delta;
+static qboolean client_frame_active;
+static int client_frame_mode;
+
+int CL_AsyncMode (void)
+{
+	return client_frame_active ? client_frame_mode : (cl_async ? cl_async->intvalue : 0);
+}
+
+void CL_AbortFrame (void)
+{
+	client_frame_active = false;
+}
 
 qboolean CL_AsyncCommandSync (void)
 {
-	return cl_async && cl_async->intvalue == 2;
+	return CL_AsyncMode () == 2;
 }
 
 qboolean CL_CommandWaitPending (void)
@@ -3507,8 +3519,6 @@ void _maxfps_changed (cvar_t *var, char *oldValue, char *newValue)
 
 void _async_changed (cvar_t *var, char *oldValue, char *newValue)
 {
-	command_wait_pending = false;
-	command_frame_time = 0;
 	if (var->intvalue == 0)
 	{
 		Cvar_SetValue ("r_maxfps", cl_maxfps->value);
@@ -4348,6 +4358,16 @@ void CL_Frame (int msec)
 		return;
 #endif
 
+	/* Console commands can change cl_async while constructing this command.
+	 * Its input, prediction and wait handling must finish in the same mode. */
+	client_frame_mode = cl_async->intvalue;
+	client_frame_active = true;
+	if (previous_async != client_frame_mode)
+	{
+		command_wait_pending = false;
+		command_frame_time = 0;
+	}
+
 #ifdef _DEBUG
 	//if (!ActiveApp)
 		//NET_Client_Sleep (50);
@@ -4388,6 +4408,7 @@ void CL_Frame (int msec)
 	if (cl_async->intvalue != 1 && !command_sync)
 	{
 		CL_Synchronous_Frame (msec);
+		client_frame_active = false;
 		return;
 	}
 
@@ -4568,6 +4589,7 @@ void CL_Frame (int msec)
 		CL_RunLightStyles ();
 		SCR_RunConsole ();
 	}
+	client_frame_active = false;
 		//cls.framecount++;
 	//}
 }

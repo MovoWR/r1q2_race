@@ -2466,7 +2466,12 @@ void Qcommon_Frame (int msec)
 #endif
 
 	if (setjmp (abortframe) )
+	{
+#ifndef DEDICATED_ONLY
+		CL_AbortFrame ();
+#endif
 		return;			// an ERR_DROP was thrown
+	}
 
 	//Com_Printf ("frame time: %d ms\n", LOG_GENERAL, msec);
 

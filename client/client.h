@@ -485,6 +485,7 @@ extern	cvar_t	*cl_nolerp;
 extern	cvar_t	*cl_railtrail;
 extern	cvar_t	*cl_async;
 extern	cvar_t	*cl_maxfps;
+int CL_AsyncMode (void);
 qboolean CL_AsyncCommandSync (void);
 qboolean CL_CommandWaitPending (void);
 void CL_CommandWait (void);
