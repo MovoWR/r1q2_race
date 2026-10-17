@@ -4,13 +4,18 @@ option(R1Q2_CORE_RENDERER "Build the optional OpenGL core renderer" ON)
 option(R1Q2_CHAT_TRANSLATOR "Build the online chat translator" ON)
 option(R1Q2_HTTP_DOWNLOADS "Build HTTP downloads with static curl and Windows Schannel" ON)
 option(R1Q2_AVCODEC "Enable local media using an explicit static MSVC FFmpeg prefix" OFF)
-set(R1Q2_FFMPEG_ROOT "" CACHE PATH "Native x86 /MT static FFmpeg installation prefix")
+set(R1Q2_FFMPEG_ROOT "" CACHE PATH "Target architecture /MT static FFmpeg installation prefix")
 option(R1Q2_OPENAL "Build the optional static OpenAL sound backend" OFF)
-set(R1Q2_OPENAL_ROOT "" CACHE PATH "Native x86 /MT static OpenAL installation prefix")
+set(R1Q2_OPENAL_ROOT "" CACHE PATH "Target architecture /MT static OpenAL installation prefix")
 
 # This target supplements the original Unix and Visual C++ DLL builds.
-if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-    message(FATAL_ERROR "The standalone client requires MSVC targeting Win32 (x86). Use the original build recipes for other targets.")
+if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "^(X86|x64)$")
+    message(FATAL_ERROR "The standalone client requires MSVC targeting Windows x86 or x64. Use the original build recipes for other targets.")
+endif()
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(r1q2_arch x64)
+else()
+    set(r1q2_arch x86)
 endif()
 enable_language(RC)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -27,6 +32,7 @@ if(R1Q2_AVCODEC)
     endif()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_static_ffmpeg.py"
+            --arch "${r1q2_arch}"
             --prefix "${R1Q2_FFMPEG_ROOT}" --compiler "${CMAKE_C_COMPILER}"
             --output-dir "${CMAKE_CURRENT_BINARY_DIR}/ffmpeg-check"
         RESULT_VARIABLE ffmpeg_result OUTPUT_VARIABLE ffmpeg_paths ERROR_VARIABLE ffmpeg_error
@@ -48,6 +54,7 @@ if(R1Q2_OPENAL)
     endif()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_static_openal.py"
+            --arch "${r1q2_arch}"
             --prefix "${R1Q2_OPENAL_ROOT}" --compiler "${CMAKE_C_COMPILER}"
             --output-dir "${CMAKE_CURRENT_BINARY_DIR}/openal-check"
         RESULT_VARIABLE openal_result OUTPUT_VARIABLE openal_paths ERROR_VARIABLE openal_error

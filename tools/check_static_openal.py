@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an explicit MSVC x86 /MT static OpenAL prefix without running it."""
+"""Validate an explicit MSVC x86/x64 /MT static OpenAL prefix without running it."""
 import argparse
 import hashlib
 import json
@@ -20,11 +20,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prefix", required=True)
     parser.add_argument("--compiler", required=True)
+    parser.add_argument("--arch", choices=("x86", "x64"), default="x86")
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    record = {"success": False, "commands": [], "inputs": {}, "probe_executed": False}
+    record = {"success": False, "arch": args.arch, "commands": [], "inputs": {}, "probe_executed": False}
 
     def require(condition, message):
         if not condition:
@@ -56,14 +57,15 @@ def main():
             remember(include / "AL" / name)
         remember(library)
         compiler = shutil.which(args.compiler)
-        require(compiler is not None, "MSVC compiler unavailable; use an x86 Visual Studio developer prompt.")
+        require(compiler is not None, "MSVC compiler unavailable; use a matching Visual Studio developer prompt.")
         dumpbin = Path(compiler).with_name("dumpbin.exe")
         require(dumpbin.is_file() and os.environ.get("INCLUDE") and os.environ.get("LIB"),
-                "Static OpenAL requires an x86 Visual Studio developer prompt (cl, dumpbin, INCLUDE and LIB).")
+                "Static OpenAL requires a matching Visual Studio developer prompt (cl, dumpbin, INCLUDE and LIB).")
         text = run([dumpbin, "/nologo", "/headers", "/directives", library], "archive")
         machines = re.findall(r"^\s*([0-9A-Fa-f]+) machine\b", text, re.M)
-        require(machines and all(int(machine, 16) == 0x14c for machine in machines),
-                "OpenAL archive is not entirely native x86 COFF.")
+        expected_machine = {"x86": 0x14c, "x64": 0x8664}[args.arch]
+        require(machines and all(int(machine, 16) == expected_machine for machine in machines),
+                "OpenAL archive is not entirely native " + args.arch + " COFF.")
         require(not re.search(r"DLL name\s*:|IMPORT HEADER", text, re.I),
                 "OpenAL DLL import libraries are unsupported; provide a static OpenAL32.lib.")
         require(not re.search(r"DEFAULTLIB:\s*\"?(?:MSVCRT|MSVCRTD|MSVCPRT|MSVCPRTD|LIBCMTD|LIBCPMTD)\b|"
@@ -77,7 +79,7 @@ def main():
         run([compiler, "/nologo", "/TC", "/O2", "/W3", "/MT", "/DAL_LIBTYPE_STATIC",
              "/I" + str(include), "/c", source, "/Fo" + str(obj)], "compile")
         run([compiler, "/nologo", "/MT", obj, "/Fe" + str(executable), "/link",
-             "/MACHINE:X86", "/INCREMENTAL:NO", "/SUBSYSTEM:CONSOLE", library,
+             "/MACHINE:" + args.arch.upper(), "/INCREMENTAL:NO", "/SUBSYSTEM:CONSOLE", library,
              *SYSTEM_LIBRARIES], "link")
         imports = run([dumpbin, "/nologo", "/dependents", executable], "imports")
         dlls = {name.lower() for name in re.findall(r"^\s+([\w.-]+\.dll)\s*$", imports, re.M | re.I)}

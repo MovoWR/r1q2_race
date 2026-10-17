@@ -3,8 +3,8 @@
 #include <AL/alc.h>
 #include <AL/alext.h>
 
-#if !defined(_MSC_VER) || !defined(_M_IX86) || defined(_DLL) || defined(_DEBUG)
-#error Static OpenAL requires MSVC x86 and the release static CRT (/MT).
+#if !defined(_MSC_VER) || (!defined(_M_IX86) && !defined(_M_AMD64)) || defined(_DLL) || defined(_DEBUG)
+#error Static OpenAL requires MSVC x86/x64 and the release static CRT (/MT).
 #endif
 #ifndef AL_LIBTYPE_STATIC
 #error OpenAL declarations must use the static library profile.

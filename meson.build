@@ -11,9 +11,10 @@ project('r1q2_standalone', 'c',
 )
 
 cc = meson.get_compiler('c')
-if host_machine.system() != 'windows' or cc.get_id() != 'msvc' or cc.sizeof('void *') != 4
-  error('The standalone client requires MSVC targeting Win32 (x86). Run Meson from an x86 developer command prompt.')
+if host_machine.system() != 'windows' or cc.get_id() != 'msvc' or host_machine.cpu_family() not in ['x86', 'x86_64']
+  error('The standalone client requires MSVC targeting Windows x86 or x64. Run Meson from a matching developer command prompt.')
 endif
+standalone_arch = host_machine.cpu_family() == 'x86_64' ? 'x64' : 'x86'
 if get_option('b_vscrt') not in ['static_from_buildtype', 'mt', 'mtd']
   error('The standalone client requires a static MSVC runtime (b_vscrt=static_from_buildtype, mt, or mtd).')
 endif
@@ -33,6 +34,7 @@ if get_option('avcodec')
     error('avcodec requires /MT; the selected configuration uses /MTd. Select a release static CRT configuration.')
   endif
   ffmpeg_check = run_command(python, files('tools/check_static_ffmpeg.py'),
+    '--arch', standalone_arch,
     '--prefix', get_option('ffmpeg_root'), '--compiler', cc.cmd_array()[0],
     '--output-dir', meson.current_build_dir() / 'ffmpeg-check', check: false)
   if ffmpeg_check.returncode() != 0
@@ -58,6 +60,7 @@ if get_option('openal')
     error('openal requires /MT; select a release static CRT configuration.')
   endif
   openal_check = run_command(python, files('tools/check_static_openal.py'),
+    '--arch', standalone_arch,
     '--prefix', get_option('openal_root'), '--compiler', cc.cmd_array()[0],
     '--output-dir', meson.current_build_dir() / 'openal-check', check: false)
   if openal_check.returncode() != 0

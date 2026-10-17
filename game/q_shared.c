@@ -18,6 +18,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 #include "q_shared.h"
+#if defined _WIN32 && defined _M_AMD64
+#include <xmmintrin.h>
+#endif
 
 #define DEG2RAD( a ) (( a * M_PI ) / 180.0F)
 
@@ -339,6 +342,20 @@ nonsse:*/
 	__asm fld dword ptr [ebx+8]
 	__asm fistp dword ptr [eax+8]
 	__asm ret
+}
+
+#elif defined _WIN32 && defined _M_AMD64
+
+int EXPORT Q_ftol( float f )
+{
+	return _mm_cvtss_si32 (_mm_set_ss (f));
+}
+
+void EXPORT Q_fastfloats (float *f, int *outptr)
+{
+	outptr[0] = Q_ftol (f[0]);
+	outptr[1] = Q_ftol (f[1]);
+	outptr[2] = Q_ftol (f[2]);
 }
 
 #else

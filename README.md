@@ -70,13 +70,18 @@ cmake --build build/standalone --config Release --target r1q2 --parallel
 ```
 
 Output: `build/standalone/Release/r1q2_race.exe`.
+For Windows x64, configure a separate directory with
+`cmake -S . -B build/standalone-x64 -A x64` and build the same `r1q2` target.
 The first configuration/build downloads pinned dependencies. The renderer,
 third-party libraries, and Microsoft C runtime are linked into the executable.
 Copy the contents of `assets/jump/` to your installation's `jump/` directory.
 
-Meson is also supported with an x86 MSVC toolchain. Feature options are listed in
+Meson supports x86 and x64 MSVC toolchains in separate build directories.
+Run it from a developer prompt matching the desired architecture. Feature options are listed in
 [CMakeLists.txt](CMakeLists.txt) and [meson.options](meson.options); OpenAL and
-FFmpeg support require additional static libraries.
+FFmpeg support require additional static libraries matching the client architecture.
+Local hosting requires `gamex86.dll` for x86 or `gamex86_64.dll` for x64;
+external renderer and client-extension DLLs must also match the executable.
 
 Legacy Unix targets use `make -C binaries`. See the
 [build recipes](binaries/Makefile). The Unix server browser supports numeric

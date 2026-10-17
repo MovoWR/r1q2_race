@@ -99,19 +99,19 @@ void InitConProc (int argc, char **argv)
 	if ((t = CCheckParm ("-HFILE")) > 0)
 	{
 		if (t < argc)
-			hFile = (HANDLE)atoi (ccom_argv[t+1]);
+			hFile = (HANDLE)(UINT_PTR)_strtoui64 (ccom_argv[t+1], NULL, 10);
 	}
 		
 	if ((t = CCheckParm ("-HPARENT")) > 0)
 	{
 		if (t < argc)
-			heventParent = (HANDLE)atoi (ccom_argv[t+1]);
+			heventParent = (HANDLE)(UINT_PTR)_strtoui64 (ccom_argv[t+1], NULL, 10);
 	}
 		
 	if ((t = CCheckParm ("-HCHILD")) > 0)
 	{
 		if (t < argc)
-			heventChild = (HANDLE)atoi (ccom_argv[t+1]);
+			heventChild = (HANDLE)(UINT_PTR)_strtoui64 (ccom_argv[t+1], NULL, 10);
 	}
 
 

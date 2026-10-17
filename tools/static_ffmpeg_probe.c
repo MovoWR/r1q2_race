@@ -8,8 +8,8 @@
 #include "snd_stream.h"
 #include "cl_media.h"
 
-#if !defined(_MSC_VER) || !defined(_M_IX86) || defined(_DLL) || defined(_DEBUG)
-#error Static FFmpeg requires MSVC x86 and the release static CRT (/MT).
+#if !defined(_MSC_VER) || (!defined(_M_IX86) && !defined(_M_AMD64)) || defined(_DLL) || defined(_DEBUG)
+#error Static FFmpeg requires MSVC x86/x64 and the release static CRT (/MT).
 #endif
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(59, 37, 100) || \
  LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(59, 27, 100) || \
@@ -68,6 +68,6 @@ int main (void)
 	CL_MediaNextStream (media, CL_MEDIA_VIDEO, &frame, error, sizeof(error));
 	CL_MediaClose (&media);
 	if (!failed)
-		printf ("MSVC x86 /MT FFmpeg API, versions and required codec capabilities verified.\n");
+		printf ("MSVC %u-bit /MT FFmpeg API, versions and required codec capabilities verified.\n", (unsigned)(8 * sizeof (void *)));
 	return failed;
 }

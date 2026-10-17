@@ -134,8 +134,8 @@ void *Hunk_Alloc (int requested)
 
 #if VIRTUAL_ALLOC
 
-	//align everything to 32 bits
-	requested = (requested + 3)&~3;
+	// Keep pointer-bearing allocations aligned on both x86 and x64.
+	requested = (requested + (int)sizeof (void *) - 1) & ~((int)sizeof (void *) - 1);
 
 	if (requested <= bytes_allocated - bytes_used)
 	{

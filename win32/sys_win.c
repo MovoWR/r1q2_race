@@ -2404,6 +2404,22 @@ qboolean Sys_CheckFPUStatus (void)
 	last_word = fpu_control_word;
 	return true;
 }
+#elif defined _M_AMD64
+void Sys_SetFPU (byte bits)
+{
+	static const unsigned int rounding[] = { _RC_NEAR, _RC_DOWN, _RC_UP, _RC_CHOP };
+	unsigned int control;
+
+	/* x64 uses SSE2; its precision is fixed, but the rounding mode is configurable. */
+	_controlfp_s (&control, rounding[(bits >> 2) & 3], _MCW_RC);
+}
+
+qboolean Sys_CheckFPUStatus (void)
+{
+	unsigned int control;
+
+	return _controlfp_s (&control, 0, 0) == 0;
+}
 #endif
 
 /*
