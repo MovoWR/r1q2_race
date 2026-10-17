@@ -86,9 +86,9 @@ static qboolean GLW_DisplayModeValid (const DEVMODEA *mode)
 
 static int EXPORT GLW_DisplayMonitors (jump_display_monitor_t *out, int capacity)
 {
-	DISPLAY_DEVICEA device;
+	DISPLAY_DEVICEA device, monitor;
 	DEVMODEA mode;
-	int i, count;
+	int i, j, count;
 	if (!out || capacity <= 0 || !GLW_DisplayLoad ())
 		return 0;
 	if (capacity > JUMP_DISPLAY_MAX_MONITORS)
@@ -108,8 +108,20 @@ static int EXPORT GLW_DisplayMonitors (jump_display_monitor_t *out, int capacity
 			continue;
 		memset (&out[count], 0, sizeof (out[count]));
 		Com_sprintf (out[count].id, sizeof (out[count].id), "%s", device.DeviceName);
-		device.DeviceString[sizeof (device.DeviceString) - 1] = 0;
-		Com_sprintf (out[count].name, sizeof (out[count].name), "%s", device.DeviceString);
+		Com_sprintf (out[count].name, sizeof (out[count].name), "Display %d", i + 1);
+		/* The parent DeviceString identifies the adapter; query its active monitor. */
+		for (j = 0; j < 128; j++)
+		{
+			memset (&monitor, 0, sizeof (monitor));
+			monitor.cb = sizeof (monitor);
+			if (!display_devices (device.DeviceName, (DWORD)j, &monitor, 0))
+				break;
+			if (!(monitor.StateFlags & DISPLAY_DEVICE_ACTIVE) || !monitor.DeviceString[0])
+				continue;
+			monitor.DeviceString[sizeof (monitor.DeviceString) - 1] = 0;
+			Com_sprintf (out[count].name, sizeof (out[count].name), "%s", monitor.DeviceString);
+			break;
+		}
 		out[count].desktop.x = mode.dmPosition.x;
 		out[count].desktop.y = mode.dmPosition.y;
 		out[count].desktop.width = mode.dmPelsWidth;
