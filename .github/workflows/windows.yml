@@ -27,6 +27,15 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Set package version
+        shell: pwsh
+        run: |
+          $revision = git rev-list --count HEAD
+          if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9]+$') {
+            throw 'Could not determine the client revision'
+          }
+          "VERSION=r$revision" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.toolchain }}
@@ -129,14 +138,62 @@ jobs:
           New-Item -ItemType Directory artifacts | Out-Null
           Copy-Item build/windows/r1q2_race.exe artifacts/
           Copy-Item assets/jump artifacts/jump -Recurse
-          Copy-Item COPYING artifacts/
-          New-Item -ItemType Directory artifacts/assets, artifacts/client/jump -Force | Out-Null
-          Copy-Item assets/jump-assets.json artifacts/assets/
-          Copy-Item client/jump/LICENSE artifacts/client/jump/
+          New-Item -ItemType Directory artifacts/licenses, artifacts/source -Force | Out-Null
+          Copy-Item COPYING artifacts/licenses/COPYING.txt
+          Copy-Item client/jump/LICENSE artifacts/licenses/MPL-2.0.txt
+          Copy-Item assets/jump-assets.json artifacts/source/jump-assets.json
 
       - name: Upload client
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: r1q2-race-windows-${{ matrix.arch }}
+          name: r1q2_race-windows-${{ matrix.arch }}-${{ env.VERSION }}
           path: artifacts/
           if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: r1q2-race-latest-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Download client packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: r1q2_race-windows-*
+          path: artifacts
+
+      - name: Compress release packages
+        shell: bash
+        run: |
+          shopt -s nullglob
+          packages=(artifacts/r1q2_race-windows-*)
+          test "${#packages[@]}" -eq 2
+          for dir in "${packages[@]}"; do
+            test -f "$dir/r1q2_race.exe"
+            test -d "$dir/jump"
+            (cd "$dir" && zip -r "../$(basename "$dir").zip" .)
+          done
+
+      - name: Create or update latest release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # A slower build of an older commit must not replace the latest build.
+          current=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
+          if [ "$current" != "$GITHUB_SHA" ]; then
+            echo 'Skipping release: main has advanced beyond this build.'
+            exit 0
+          fi
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest artifacts/*.zip --clobber
+            gh release edit latest --title "Latest" --notes "Automatically updated latest build" --latest
+          else
+            gh release create latest artifacts/*.zip --target "$GITHUB_SHA" --title "Latest" --notes "Automatically updated latest build" --latest
+          fi
+          gh api --method PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
