@@ -2328,6 +2328,9 @@ void Qcommon_Init (int argc, char **argv)
 	FS_InitFilesystem ();
 
 	Cbuf_AddText ("exec default.cfg\n");
+#ifndef DEDICATED_ONLY
+	CL_AddDefaultConfig ();
+#endif
 	Cbuf_AddText ("exec config.cfg\n");
 
 	Cbuf_AddEarlyCommands (true);

@@ -968,6 +968,7 @@ char	*FS_NextPath (const char *prevpath);
 void	FS_ExecConfig (const char *filename);
 
 qboolean FS_ExistsInGameDir (char *filename);
+qboolean FS_HasCustomConfig (void);
 
 int		EXPORT FS_FOpenFile (const char *filename, FILE /*@out@*/**file, handlestyle_t openHandle, qboolean *closeHandle);
 void	EXPORT FS_FCloseFile (FILE *f);
@@ -1192,6 +1193,7 @@ CLIENT / SERVER SYSTEMS
 ==============================================================
 */
 
+void CL_AddDefaultConfig (void);
 void CL_Init (void);
 void CL_Drop (qboolean skipdisconnect, qboolean nonerror);
 void CL_AbortFrame (void);

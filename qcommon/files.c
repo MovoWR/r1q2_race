@@ -33,6 +33,7 @@ extern void Con_LoadHistory (void);
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <limits.h>
+#include <errno.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
@@ -1491,6 +1492,48 @@ qboolean FS_ExistsInGameDir (char *filename)
 			Com_sprintf (netpath, sizeof(netpath), "%s/%s",search->filename, filename);
 
 			if (Sys_FileLength (netpath) != -1)
+				return true;
+		}
+	}
+
+	return false;
+}
+
+/*
+=============
+FS_HasCustomConfig
+
+Only stock baseq2 archive defaults allow a fresh client profile.
+=============
+*/
+qboolean FS_HasCustomConfig (void)
+{
+	searchpath_t	*search;
+	qboolean		gamepath;
+	struct stat		info;
+	char			path[MAX_OSPATH + MAX_QPATH];
+
+	gamepath = true;
+	for (search = fs_searchpaths; search; search = search->next)
+	{
+		if (search == fs_base_searchpaths)
+			gamepath = false;
+
+		if (search->pack)
+		{
+			// Unlike Q2PRO, R1Q2 also executes config.cfg from archives.
+			if (rbfind ("config.cfg", search->pack->rb) ||
+				(gamepath && rbfind ("default.cfg", search->pack->rb)))
+				return true;
+		}
+		else
+		{
+			// Empty or inaccessible files still represent an existing setup.
+			Com_sprintf (path, sizeof(path), "%s/config.cfg", search->filename);
+			if (stat (path, &info) == 0 || errno != ENOENT)
+				return true;
+			Com_sprintf (path, sizeof(path), "%s/default.cfg", search->filename);
+			if (stat (path, &info) == 0 || errno != ENOENT)
 				return true;
 		}
 	}

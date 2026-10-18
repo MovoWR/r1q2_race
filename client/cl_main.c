@@ -3993,6 +3993,59 @@ void CL_InitLocal (void)
 
 /*
 ===============
+CL_AddDefaultConfig
+
+Q2PRO Race first-launch profile, queued after the stock defaults.
+===============
+*/
+void CL_AddDefaultConfig (void)
+{
+	if (Cvar_VariableValue ("dedicated") ||
+		Q_stricmp (Cvar_VariableString ("game"), "jump") || FS_HasCustomConfig ())
+		return;
+
+	Cbuf_AddText (
+		"unbindall\n"
+		"bind w +forward\n"
+		"bind s +back\n"
+		"bind a +moveleft\n"
+		"bind d +moveright\n"
+		"bind SPACE +moveup\n"
+		"bind CTRL +movedown\n"
+		"bind MOUSE1 +attack\n"
+		"bind MOUSE2 +dj\n"
+		"bind SHIFT +speed\n"
+		"bind F1 inven\n"
+		"bind TAB score\n"
+		"bind ENTER invuse\n"
+		"bind [ invprev\n"
+		"bind ] invnext\n"
+		"bind F5 \"team hard\"\n"
+		"bind F6 \"team easy\"\n"
+		"bind q store\n"
+		"bind k kill\n"
+		"bind 1 \"replay g 1\"\n"
+		"bind t messagemode\n"
+		"bind y messagemode2\n"
+		"bind F12 screenshot\n"
+		"bind ESCAPE togglemenu\n"
+		"bind ` toggleconsole\n"
+		"bind ~ toggleconsole\n"
+		"seta cl_run 1\n"
+		"seta gl_beamstyle 1\n"
+#ifdef USE_CURL
+		"seta cl_http_downloads 1\n"
+		"seta cl_http_filelists 1\n"
+#endif
+		"seta allow_download 1\n"
+		"seta allow_download_players 1\n"
+		"seta allow_download_models 1\n"
+		"seta allow_download_sounds 1\n"
+		"seta allow_download_maps 1\n");
+}
+
+/*
+===============
 CL_WriteConfiguration
 
 Writes key bindings and archived cvars to config.cfg
