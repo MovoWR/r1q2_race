@@ -197,3 +197,13 @@ jobs:
             gh release create latest artifacts/*.zip --target "$GITHUB_SHA" --title "Latest" --notes "Automatically updated latest build" --latest
           fi
           gh api --method PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
+
+          # Remove old versions only after publishing the replacement packages.
+          release_id=$(gh api "repos/$GH_REPO/releases/tags/latest" --jq .id)
+          assets=$(gh api --paginate "repos/$GH_REPO/releases/$release_id/assets" --jq '.[] | [.id, .name] | @tsv')
+          while IFS=$'\t' read -r asset_id name; do
+            if [[ "$name" =~ ^r1q2_race-windows-(x86|x64)-r[0-9]+\.zip$ ]] &&
+               [[ ! -f "artifacts/$name" ]]; then
+              gh api --method DELETE "repos/$GH_REPO/releases/assets/$asset_id"
+            fi
+          done <<< "$assets"
