@@ -3995,7 +3995,7 @@ void CL_InitLocal (void)
 ===============
 CL_AddDefaultConfig
 
-Q2PRO Race first-launch profile, queued after the stock defaults.
+Q2PRO Race bindings and native first-launch settings, queued after stock defaults.
 ===============
 */
 void CL_AddDefaultConfig (void)
@@ -4033,6 +4033,9 @@ void CL_AddDefaultConfig (void)
 		"bind ~ toggleconsole\n"
 		"seta cl_run 1\n"
 		"seta gl_beamstyle 1\n"
+		"seta vid_fullscreen 1\n"
+		"seta vid_borderless 1\n"
+		"seta cl_async 2\n"
 #ifdef USE_CURL
 		"seta cl_http_downloads 1\n"
 		"seta cl_http_filelists 1\n"
